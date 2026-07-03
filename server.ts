@@ -1171,6 +1171,233 @@ app.post("/api/settings/update", (req, res) => {
 });
 
 
+// --- Simulating new features requested by user ---
+let simulatedFiles: Record<string, Array<{name: string, size: string, date: string}>> = {
+  "videos": [
+    { name: "fb_reel_ironman_raw.mp4", size: "12.4 MB", date: "2026-07-01" },
+    { name: "tiktok_capcut_tut.mp4", size: "24.8 MB", date: "2026-07-02" }
+  ],
+  "subtitles": [
+    { name: "ironman_zh.srt", size: "12.2 KB", date: "2026-07-01" },
+    { name: "ironman_vi.srt", size: "14.5 KB", date: "2026-07-01" },
+    { name: "ironman_bilingual.srt", size: "25.1 KB", date: "2026-07-02" }
+  ],
+  "tts": [
+    { name: "voice_hoaimy_intro.mp3", size: "1.8 MB", date: "2026-07-02" },
+    { name: "voice_male_outro.mp3", size: "2.1 MB", date: "2026-07-02" }
+  ],
+  "render": [
+    { name: "render_temp_1.mp4", size: "8.5 MB", date: "2026-07-02" }
+  ],
+  "output": [
+    { name: "final_ironman_dubbed.mp4", size: "12.2 MB", date: "2026-07-02" }
+  ],
+  "logs": [
+    { name: "celery_worker.log", size: "15.4 KB", date: "2026-07-03" },
+    { name: "telegram_bot.log", size: "42.1 KB", date: "2026-07-03" }
+  ]
+};
+
+let queueStatus: Record<string, {active: number, queued: number, status: string}> = {
+  "transcribe": { active: 1, queued: 2, status: "running" },
+  "translate": { active: 0, queued: 0, status: "idle" },
+  "tts": { active: 0, queued: 2, status: "idle" },
+  "render": { active: 1, queued: 0, status: "running" },
+  "publish": { active: 0, queued: 1, status: "idle" }
+};
+
+let botSettings = {
+  username: "@VidLocalStudio_Bot",
+  webhook: "https://api.vidlocal.io/telegram/webhook",
+  status: "active",
+  polling: "disabled",
+  commands: [
+    { command: "start", description: "Bắt đầu tương tác với Bot & Đăng ký" },
+    { command: "help", description: "Xem hướng dẫn sử dụng & danh sách lệnh" },
+    { command: "status", description: "Kiểm tra tiến trình dịch các Job đang chạy" },
+    { command: "glossary", description: "Tra cứu nhanh bảng xưng hông nhân vật" },
+    { command: "subscribe", description: "Đăng ký nhận thông báo đẩy khi Render/Publish xong" }
+  ]
+};
+
+let aiServicesMetrics = {
+  gemini: { status: "online", tokenUsage: 145000, requestsToday: 48 },
+  whisper: { status: "online", gpuUsage: 35, speed: "2.4x Realtime" },
+  deeplx: { status: "online", requests: 1240, limit: 10000 }
+};
+
+let customSystemLogs = [
+  { time: "2026-07-03T00:10:00Z", level: "info", section: "API", message: "Express API server started on port 3000 successfully." },
+  { time: "2026-07-03T00:11:05Z", level: "info", section: "Worker", message: "Celery worker pool initialized with 4 parallel processes." },
+  { time: "2026-07-03T00:12:12Z", level: "info", section: "Telegram", message: "Telegram webhook registered and verified at URL: https://api.vidlocal.io/telegram/webhook" },
+  { time: "2026-07-03T00:15:30Z", level: "info", section: "Render", message: "FFmpeg render pipeline with hardsub and voiceover enabled." },
+  { time: "2026-07-03T00:20:45Z", level: "warn", section: "API", message: "Slow response detected from DeepLX translation provider. Retrying request." },
+  { time: "2026-07-03T00:30:15Z", level: "error", section: "Error", message: "yt-dlp download failed for Job 1023: Private or region-locked video." },
+  { time: "2026-07-03T00:35:50Z", level: "info", section: "Worker", message: "Whisper GPU model loaded into memory. VRAM utilized: 4.8 GB" }
+];
+
+// 5. File Manager API
+app.get("/api/files", (req, res) => {
+  res.json(simulatedFiles);
+});
+
+app.post("/api/files/upload", (req, res) => {
+  const { folder, name, size } = req.body;
+  if (simulatedFiles[folder]) {
+    simulatedFiles[folder].unshift({
+      name: name || `uploaded_${Date.now()}.mp4`,
+      size: size || "5.4 MB",
+      date: new Date().toISOString().split("T")[0]
+    });
+    res.json({ success: true, files: simulatedFiles });
+  } else {
+    res.status(400).json({ error: "Folder not found" });
+  }
+});
+
+app.delete("/api/files/:folder/:name", (req, res) => {
+  const { folder, name } = req.params;
+  if (simulatedFiles[folder]) {
+    simulatedFiles[folder] = simulatedFiles[folder].filter(f => f.name !== name);
+    res.json({ success: true, files: simulatedFiles });
+  } else {
+    res.status(400).json({ error: "Folder not found" });
+  }
+});
+
+// 6. Queue Monitor API
+app.get("/api/queues", (req, res) => {
+  res.json(queueStatus);
+});
+
+app.post("/api/queues/:queueName/:action", (req, res) => {
+  const { queueName, action } = req.params;
+  if (queueStatus[queueName]) {
+    if (action === "pause") {
+      queueStatus[queueName].status = "paused";
+    } else if (action === "resume") {
+      queueStatus[queueName].status = "running";
+    } else if (action === "cancel") {
+      queueStatus[queueName].queued = Math.max(0, queueStatus[queueName].queued - 1);
+    }
+    res.json({ success: true, queues: queueStatus });
+  } else {
+    res.status(400).json({ error: "Queue not found" });
+  }
+});
+
+// 7. Bot Center API
+app.get("/api/bot-status", (req, res) => {
+  res.json(botSettings);
+});
+
+app.post("/api/bot-status/action", (req, res) => {
+  const { action } = req.body;
+  if (action === "restart") {
+    botSettings.status = "restarting";
+    setTimeout(() => { botSettings.status = "active"; }, 3000);
+  } else if (action === "polling") {
+    botSettings.polling = botSettings.polling === "active" ? "disabled" : "active";
+  }
+  res.json({ success: true, bot: botSettings });
+});
+
+// 8. AI Services API
+app.get("/api/ai-services", (req, res) => {
+  res.json(aiServicesMetrics);
+});
+
+// 9. System Logs API
+app.get("/api/logs", (req, res) => {
+  res.json(customSystemLogs);
+});
+
+// 10. AI Troubleshooting Chat API
+app.post("/api/ai-chat", async (req, res) => {
+  const { message, jobId } = req.body;
+  const ai = getAI();
+
+  let context = "";
+  if (jobId) {
+    const job = videoJobs.find(j => j.id === jobId);
+    if (job) {
+      context = `Thông tin video job hiện tại:\n` +
+        `- Tiêu đề: ${job.title}\n` +
+        `- Trạng thái: ${job.status}\n` +
+        `- Bước hiện tại: ${job.current_step}\n` +
+        `- Nguồn: ${job.platform} (${job.url})\n` +
+        `- Nhật ký logs của job:\n` +
+        job.logs.map(l => `  [${l.time}] [${l.level.toUpperCase()}] ${l.message}`).join("\n");
+    }
+  }
+
+  const prompt = `Bạn là Trợ lý AI chuyên gia hỗ trợ kỹ thuật của VidLocal Studio.
+Hãy đọc câu hỏi của người dùng và giải quyết thắc mắc của họ dựa trên bối cảnh hệ thống.
+Trả lời một cách cụ thể, chuyên nghiệp, súc tích bằng tiếng Việt. Trực tiếp giải quyết lỗi và đề xuất hướng khắc phục cụ thể cho phụ đề hoặc render.
+
+${context ? `Bối cảnh lỗi (Context):\n${context}` : "Bối cảnh: Người dùng đang hỏi câu hỏi chung về hệ thống VidLocal Studio."}
+
+Câu hỏi của người dùng: ${message}
+
+Hãy phản hồi tự nhiên, chuyên sâu, hỗ trợ giải quyết lỗi cụ thể (như phân tích log hoặc đề xuất sửa lỗi subtitle, render, yt-dlp):`;
+
+  if (ai) {
+    try {
+      const response = await ai.models.generateContent({
+        model: "gemini-3.5-flash",
+        contents: prompt
+      });
+      return res.json({ response: response.text });
+    } catch (err) {
+      console.error("Error in ai-chat endpoint:", err);
+    }
+  }
+
+  // High-fidelity fallback logic if Gemini fails/not configured
+  let reply = "Tôi có thể giúp gì cho bạn về VidLocal Studio?";
+  const msgLower = message.toLowerCase();
+  if (msgLower.includes("lỗi") || msgLower.includes("fail") || msgLower.includes("hỏng")) {
+    if (jobId) {
+      const job = videoJobs.find(j => j.id === jobId);
+      if (job && job.logs.some(l => l.level === "error")) {
+        const errLog = job.logs.find(l => l.level === "error")?.message || "";
+        reply = `Phát hiện lỗi trong tiến trình của video "${job.title}":
+❌ \`${errLog}\`
+
+**Nguyên nhân:** Lỗi này thường do yt-dlp không vượt qua được cơ chế chặn bot của nền tảng hoặc tệp video nguồn bị giới hạn độ tuổi/riêng tư.
+**Giải pháp khắc phục:** 
+1. Thử nhấn nút **"Thử lại"** để kích hoạt pipeline tải lại tệp segment.
+2. Cập nhật cookie trình duyệt trong tab Settings để cấp quyền tải các video private.
+3. Nếu vẫn không được, bạn có thể tải tệp video thủ công và dùng tính năng "Upload Video" trong File Manager để chèn trực tiếp vào render queue!`;
+      } else {
+        reply = `Tôi đã kiểm tra nhật ký của Video Job này. Hiện tại tiến trình đang dừng ở bước \`${job?.current_step || "không rõ"}\` với trạng thái \`${job?.status || "không rõ"}\`. 
+Bạn có thể thử bấm **Thử lại** để chạy lại bước này hoặc kiểm tra cấu hình mạng. Nếu cần hỗ trợ sâu hơn, hãy thử duyệt qua danh sách file log hệ thống.`;
+      }
+    } else {
+      reply = `Hệ thống ghi nhận một số lỗi liên quan đến dịch thuật và tải video (yt-dlp). Bạn có thể mở mục **System Logs** để xem tệp logs chi tiết hoặc chuyển vai trò sang **Admin** để cấu hình lại API Key của Gemini/OpenAI trong mục Settings!`;
+    }
+  } else if (msgLower.includes("subtitle") || msgLower.includes("phụ đề") || msgLower.includes("lệch")) {
+    reply = `Để khắc phục lỗi phụ đề bị lệch timecode hoặc dịch sai nghĩa:
+1. Truy cập vào **Subtitle Editor (Trình biên tập phụ đề)** của dự án.
+2. Sử dụng tính năng kéo dãn cue hoặc chỉnh trực tiếp mốc thời gian (timeline).
+3. Sử dụng công cụ **"Auto Fix CPS"** để tự động chuẩn hóa số ký tự mỗi giây (Characters Per Second), giúp người xem dễ theo dõi hơn.
+4. Chọn **Export** sang định dạng song ngữ (.srt Song ngữ) để kiểm tra độ khớp trực quan!`;
+  } else if (msgLower.includes("render")) {
+    reply = `Tiến trình Render video sử dụng FFmpeg kết hợp phần cứng GPU để chèn phụ đề cứng (HardSub) và lồng tiếng (TTS).
+Nếu Render bị chậm hoặc treo, vui lòng kiểm tra:
+- GPU usage hiện tại trong tab **AI Services** (Whisper/Render đang chiếm ${aiServicesMetrics.whisper.gpuUsage}% GPU).
+- Dung lượng ổ đĩa khả dụng (${simulatedFiles.render.length} tệp tạm, ổ đĩa còn trống 380GB).
+Bạn có thể nhấn **Tạm dừng/Chạy lại** Render Queue để giải phóng tài nguyên bị kẹt!`;
+  } else {
+    reply = `Chào bạn! Tôi là Trợ lý AI của VidLocal Studio. 
+Hiện tại tôi thấy bạn đang hỏi về: "${message}".
+Tôi có thể hỗ trợ bạn cấu hình Telegram Bot, tối ưu hóa prompt dịch thuật Gemini, đồng bộ tài khoản YouTube, hoặc khắc phục nhanh các lỗi Render và Speech-to-Text. Hãy chọn một Video Job cụ thể để tôi hỗ trợ chẩn đoán chính xác nhất nhé!`;
+  }
+
+  res.json({ response: reply });
+});
+
+
 // Setup Vite or Static Build Serving
 async function startServer() {
   if (process.env.NODE_ENV !== "production") {

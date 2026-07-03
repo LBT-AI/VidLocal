@@ -5,7 +5,8 @@ import {
   approveGlossary, skipGlossary, regenerateMetadata, approveUpload, 
   cancelJob, retryJob, getProjects, createProject, getProject,
   triggerProjectStep, getGlossary, createGlossaryEntry, deleteGlossaryEntry,
-  getConnectSettings, toggleYoutubeAuth, updateSystemSettings, subscribeToJobs
+  getConnectSettings, toggleYoutubeAuth, updateSystemSettings, subscribeToJobs,
+  getSystemLogs
 } from "./lib/api";
 import { VideoJob, Project, GlossaryEntry, SystemSettings } from "./types";
 import { JobCard } from "./components/jobs/JobCard";
@@ -20,14 +21,28 @@ import { RiskFlagBadge } from "./components/RiskFlagBadge";
 import { SourcePlatformBadge } from "./components/SourcePlatformBadge";
 import { 
   Play, Plus, Search, Calendar, RefreshCw, X, Link, Eye, 
-  CheckCircle, Sliders, Volume2, ShieldAlert, BookOpen, AlertCircle, Trash2, Edit2
+  CheckCircle, Sliders, Volume2, ShieldAlert, BookOpen, AlertCircle, Trash2, Edit2,
+  Folder, Layers, MessageSquare, Terminal, Shield, Sparkles, Coins, Cpu, Database, HardDrive, Send
 } from "lucide-react";
+
+// --- Custom Subcomponents for Extended iOS 18 Administrative/Manager Capabilities ---
+import { SubtitleEditor } from "./components/SubtitleEditor";
+import { BotCenter } from "./components/BotCenter";
+import { AiServices } from "./components/AiServices";
+import { QueueMonitor } from "./components/QueueMonitor";
+import { FileManager } from "./components/FileManager";
+import { AdminPanel } from "./components/AdminPanel";
+import { AiChatAssistant } from "./components/AiChatAssistant";
 
 export default function App() {
   // Navigation / UI States
   const [activeTab, setActiveTab] = useState<string>("home"); // home, jobs, new, projects, settings
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const [settingsSubTab, setSettingsSubTab] = useState<string>("settings"); // settings, bot, queues, files, admin, chat, logs
+
+  // Logs state
+  const [systemLogs, setSystemLogs] = useState<Array<{ time: string, level: string, section: string, message: string }>>([]);
 
   // Data States
   const [jobs, setJobs] = useState<VideoJob[]>([]);
@@ -85,16 +100,18 @@ export default function App() {
   const loadData = async (silent = false) => {
     if (!silent) setIsLoading(true);
     try {
-      const [fetchedJobs, fetchedProjects, fetchedGlossary, fetchedSettings] = await Promise.all([
+      const [fetchedJobs, fetchedProjects, fetchedGlossary, fetchedSettings, fetchedLogs] = await Promise.all([
         getJobs(),
         getProjects(),
         getGlossary(),
-        getConnectSettings()
+        getConnectSettings(),
+        getSystemLogs().catch(() => [])
       ]);
       setJobs(fetchedJobs);
       setProjects(fetchedProjects);
       setGlossaries(fetchedGlossary);
       setSystemSettings(fetchedSettings);
+      setSystemLogs(fetchedLogs);
     } catch (err: any) {
       console.error(err);
       setToast({ message: "Lỗi đồng bộ dữ liệu với Backend", type: "error" });
@@ -411,6 +428,62 @@ export default function App() {
             </div>
           </div>
 
+          {/* Advanced System Metrics Row (iOS 18 High Density) */}
+          <div className="space-y-2.5">
+            <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">System Infrastructure Health</h3>
+            <div className="grid grid-cols-2 gap-3">
+              {/* CPU & RAM Card */}
+              <div className="bg-white/[0.02] border border-white/[0.05] p-3 rounded-[22px] space-y-2 text-[10px]">
+                <div className="flex justify-between items-center text-slate-400 font-medium">
+                  <span className="flex items-center gap-1">
+                    <Cpu className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>CPU Load</span>
+                  </span>
+                  <span className="font-mono text-cyan-400 font-bold">14.8%</span>
+                </div>
+                <div className="flex justify-between items-center text-slate-400 font-medium">
+                  <span className="flex items-center gap-1">
+                    <Database className="w-3.5 h-3.5 text-purple-400" />
+                    <span>RAM Used</span>
+                  </span>
+                  <span className="font-mono text-purple-400 font-bold">42.1%</span>
+                </div>
+              </div>
+
+              {/* Workers & Storage Card */}
+              <div className="bg-white/[0.02] border border-white/[0.05] p-3 rounded-[22px] space-y-2 text-[10px]">
+                <div className="flex justify-between items-center text-slate-400 font-medium">
+                  <span className="flex items-center gap-1">
+                    <Layers className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Celery Workers</span>
+                  </span>
+                  <span className="text-emerald-400 font-bold uppercase">4 Online</span>
+                </div>
+                <div className="flex justify-between items-center text-slate-400 font-medium">
+                  <span className="flex items-center gap-1">
+                    <HardDrive className="w-3.5 h-3.5 text-yellow-500" />
+                    <span>Disk Space</span>
+                  </span>
+                  <span className="font-mono text-yellow-500 font-bold">120G/500G</span>
+                </div>
+              </div>
+
+              {/* Bot & Webhook Card */}
+              <div className="bg-white/[0.02] border border-white/[0.05] p-3 rounded-[22px] space-y-1 text-[10px] col-span-2 flex justify-between items-center">
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                  <div>
+                    <p className="font-bold text-white text-[10.5px]">Telegram Bot: @VidLocalStudio_Bot</p>
+                    <p className="text-[9px] text-slate-500 mt-0.5">Webhook Webapp active & listening</p>
+                  </div>
+                </div>
+                <span className="bg-cyan-500/10 text-cyan-400 font-mono font-bold px-2 py-0.5 rounded text-[9px] uppercase">
+                  Webhook OK
+                </span>
+              </div>
+            </div>
+          </div>
+
           {/* Core Urgent Pending Approvals Hero Card */}
           {waitingJobsCount > 0 ? (
             <IOSCard
@@ -461,36 +534,109 @@ export default function App() {
             </div>
           )}
 
-          {/* Quick Action Grid */}
+          {/* Quick Action Bento Grid (iOS 18 Grid of 4 columns, elegant circles/pills) */}
           <div className="space-y-2.5">
-            <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Quick Pipeline Actions</h3>
-            <div className="grid grid-cols-2 gap-3">
+            <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Quick Studio Actions</h3>
+            <div className="grid grid-cols-4 gap-2">
               <button
-                id="btn-quick-fb"
+                onClick={() => setIsAddProjSheetOpen(true)}
+                className="bg-white/[0.02] border border-white/[0.04] p-2 rounded-[18px] flex flex-col items-center justify-center text-center gap-1 hover:bg-white/[0.04] active:scale-95 transition-all"
+              >
+                <div className="w-8 h-8 rounded-full bg-purple-500/15 flex items-center justify-center text-purple-400 border border-purple-500/20">
+                  <Plus className="w-4 h-4" />
+                </div>
+                <span className="text-[9px] font-bold text-slate-300 leading-tight">Tạo Proj</span>
+              </button>
+
+              <button
                 onClick={() => {
                   setNewPlatform("Facebook");
                   setActiveTab("new");
                 }}
-                className="bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.06] p-4 rounded-[24px] flex flex-col items-center gap-2 active:scale-95 transition-all"
+                className="bg-white/[0.02] border border-white/[0.04] p-2 rounded-[18px] flex flex-col items-center justify-center text-center gap-1 hover:bg-white/[0.04] active:scale-95 transition-all"
               >
-                <div className="w-10 h-10 rounded-full bg-blue-500 flex items-center justify-center text-white shadow-lg shadow-blue-500/15">
+                <div className="w-8 h-8 rounded-full bg-blue-500/15 flex items-center justify-center text-blue-400 border border-blue-500/20">
                   <Play className="w-4 h-4 fill-current" />
                 </div>
-                <span className="text-xs font-bold text-slate-200">New Facebook Job</span>
+                <span className="text-[9px] font-bold text-slate-300 leading-tight">Fb → YT</span>
               </button>
 
               <button
-                id="btn-quick-tt"
                 onClick={() => {
                   setNewPlatform("TikTok");
                   setActiveTab("new");
                 }}
-                className="bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.06] p-4 rounded-[24px] flex flex-col items-center gap-2 active:scale-95 transition-all"
+                className="bg-white/[0.02] border border-white/[0.04] p-2 rounded-[18px] flex flex-col items-center justify-center text-center gap-1 hover:bg-white/[0.04] active:scale-95 transition-all"
               >
-                <div className="w-10 h-10 rounded-full bg-pink-500 flex items-center justify-center text-white shadow-lg shadow-pink-500/15">
+                <div className="w-8 h-8 rounded-full bg-pink-500/15 flex items-center justify-center text-pink-400 border border-pink-500/20">
                   <Plus className="w-4 h-4" />
                 </div>
-                <span className="text-xs font-bold text-slate-200">New TikTok Job</span>
+                <span className="text-[9px] font-bold text-slate-300 leading-tight">TT → YT</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setSettingsSubTab("files");
+                  setActiveTab("settings");
+                }}
+                className="bg-white/[0.02] border border-white/[0.04] p-2 rounded-[18px] flex flex-col items-center justify-center text-center gap-1 hover:bg-white/[0.04] active:scale-95 transition-all"
+              >
+                <div className="w-8 h-8 rounded-full bg-yellow-500/15 flex items-center justify-center text-yellow-400 border border-yellow-500/20">
+                  <Folder className="w-4 h-4" />
+                </div>
+                <span className="text-[9px] font-bold text-slate-300 leading-tight">Tải Video</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setSettingsSubTab("queues");
+                  setActiveTab("settings");
+                }}
+                className="bg-white/[0.02] border border-white/[0.04] p-2 rounded-[18px] flex flex-col items-center justify-center text-center gap-1 hover:bg-white/[0.04] active:scale-95 transition-all"
+              >
+                <div className="w-8 h-8 rounded-full bg-[#06B6D4]/15 flex items-center justify-center text-[#06B6D4] border border-[#06B6D4]/20">
+                  <Layers className="w-4 h-4" />
+                </div>
+                <span className="text-[9px] font-bold text-slate-300 leading-tight">Hàng Đợi</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setSettingsSubTab("bot");
+                  setActiveTab("settings");
+                }}
+                className="bg-white/[0.02] border border-white/[0.04] p-2 rounded-[18px] flex flex-col items-center justify-center text-center gap-1 hover:bg-white/[0.04] active:scale-95 transition-all"
+              >
+                <div className="w-8 h-8 rounded-full bg-emerald-500/15 flex items-center justify-center text-emerald-400 border border-emerald-500/20">
+                  <Terminal className="w-4 h-4" />
+                </div>
+                <span className="text-[9px] font-bold text-slate-300 leading-tight">Bot Center</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setSettingsSubTab("chat");
+                  setActiveTab("settings");
+                }}
+                className="bg-white/[0.02] border border-white/[0.04] p-2 rounded-[18px] flex flex-col items-center justify-center text-center gap-1 hover:bg-white/[0.04] active:scale-95 transition-all"
+              >
+                <div className="w-8 h-8 rounded-full bg-orange-500/15 flex items-center justify-center text-orange-400 border border-orange-500/20">
+                  <MessageSquare className="w-4 h-4" />
+                </div>
+                <span className="text-[9px] font-bold text-slate-300 leading-tight">AI Chat</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setSettingsSubTab("logs");
+                  setActiveTab("settings");
+                }}
+                className="bg-white/[0.02] border border-white/[0.04] p-2 rounded-[18px] flex flex-col items-center justify-center text-center gap-1 hover:bg-white/[0.04] active:scale-95 transition-all"
+              >
+                <div className="w-8 h-8 rounded-full bg-red-500/15 flex items-center justify-center text-red-400 border border-red-500/20">
+                  <Terminal className="w-4 h-4" />
+                </div>
+                <span className="text-[9px] font-bold text-slate-300 leading-tight">Hệ Thống Logs</span>
               </button>
             </div>
           </div>
@@ -1009,6 +1155,14 @@ export default function App() {
             </button>
           )}
 
+          {/* CapCut-style Subtitle Editor & Timeline */}
+          <div className="space-y-2.5">
+            <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">
+              Bộ biên tập phụ đề (CapCut Subtitle Editor)
+            </h3>
+            <SubtitleEditor projectId={activeProject.id} projectName={activeProject.name} />
+          </div>
+
           {/* Glossary Entries associated with project */}
           <div className="space-y-2.5">
             <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Từ Điển Riêng Cho Dự Án</h3>
@@ -1036,118 +1190,220 @@ export default function App() {
       {activeTab === "settings" && (
         <div id="view-settings" className="space-y-5">
           <div>
-            <h2 className="text-xl font-extrabold text-white tracking-tight">Cấu Hình VidLocal</h2>
-            <p className="text-xs text-slate-400">Quản lý tích hợp YouTube, R2 & AI Models</p>
+            <h2 className="text-xl font-extrabold text-white tracking-tight">Trung Tâm Quản Trị VidLocal</h2>
+            <p className="text-xs text-slate-400">Quản lý tích hợp YouTube, R2, AI, bot Telegram & hệ thống</p>
           </div>
 
-          {/* Connection row list */}
-          <div className="space-y-2.5">
-            <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Tích Hợp API & Cloud</h3>
-            
-            <div className="space-y-2">
-              <SettingsRow
-                label="Đăng Nhập Kênh YouTube"
-                icon={<Link className="w-4 h-4 text-red-500" />}
-                type="button"
-                value={systemSettings?.youtube_connected ? "VidLocal Official" : "Chưa Liên Kết"}
-                onClick={async () => {
-                  setIsLoading(true);
-                  const res = await toggleYoutubeAuth();
-                  if (res.success) {
-                    setSystemSettings(res.settings);
-                    setToast({ message: "Đã thay đổi kết nối YouTube API!", type: "success" });
-                  }
-                  setIsLoading(false);
-                }}
-              />
-
-              <SettingsRow
-                label="Cloudflare R2 Bucket"
-                icon={<Sliders className="w-4 h-4 text-orange-400" />}
-                type="info"
-                value={systemSettings?.r2_bucket || "vidlocal-prod"}
-              />
-
-              <SettingsRow
-                label="Trạng Thái Cloudflare R2"
-                icon={<Sliders className="w-4 h-4 text-emerald-400" />}
-                type="info"
-                value="Connected"
-              />
-            </div>
+          {/* Sub Navigation Bar within Settings */}
+          <div className="flex gap-1.5 overflow-x-auto pb-2 border-b border-white/[0.04] -mx-4 px-4 scrollbar-none">
+            {[
+              { id: "settings", label: "Cấu hình", icon: <Sliders className="w-3.5 h-3.5" /> },
+              { id: "bot", label: "Telegram Bot", icon: <Terminal className="w-3.5 h-3.5" /> },
+              { id: "queues", label: "Hàng đợi", icon: <Layers className="w-3.5 h-3.5" /> },
+              { id: "files", label: "Files", icon: <Folder className="w-3.5 h-3.5" /> },
+              { id: "admin", label: "Admin", icon: <Shield className="w-3.5 h-3.5" /> },
+              { id: "chat", label: "AI Chat", icon: <MessageSquare className="w-3.5 h-3.5" /> },
+              { id: "logs", label: "Logs", icon: <Terminal className="w-3.5 h-3.5" /> },
+            ].map(sub => (
+              <button
+                key={sub.id}
+                onClick={() => setSettingsSubTab(sub.id)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-bold whitespace-nowrap transition-all border ${
+                  settingsSubTab === sub.id
+                    ? "bg-purple-600/20 text-purple-300 border-purple-500/30"
+                    : "bg-white/[0.02] text-slate-400 border-white/[0.04] hover:text-white"
+                }`}
+              >
+                {sub.icon}
+                <span>{sub.label}</span>
+              </button>
+            ))}
           </div>
 
-          {/* AI Settings Group */}
-          <div className="space-y-2.5">
-            <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Cấu Hình Trí Tuệ Nhân Tạo</h3>
-            <div className="space-y-2">
-              <SettingsRow
-                label="Dịch Thuyết Minh / SEO"
-                icon={<BookOpen className="w-4 h-4 text-purple-400" />}
-                type="info"
-                value={systemSettings?.ai_provider || "Gemini 2.5 Flash"}
-              />
+          {/* Render Active Sub Tab Content */}
+          {settingsSubTab === "settings" && (
+            <div className="space-y-5 animate-fade-in">
+              {/* Connection row list */}
+              <div className="space-y-2.5">
+                <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Tích Hợp API & Cloud</h3>
+                
+                <div className="space-y-2">
+                  <SettingsRow
+                    label="Đăng Nhập Kênh YouTube"
+                    icon={<Link className="w-4 h-4 text-red-500" />}
+                    type="button"
+                    value={systemSettings?.youtube_connected ? "VidLocal Official" : "Chưa Liên Kết"}
+                    onClick={async () => {
+                      setIsLoading(true);
+                      const res = await toggleYoutubeAuth();
+                      if (res.success) {
+                        setSystemSettings(res.settings);
+                        setToast({ message: "Đã thay đổi kết nối YouTube API!", type: "success" });
+                      }
+                      setIsLoading(false);
+                    }}
+                  />
 
-              <SettingsRow
-                label="Whisper Speech-To-Text"
-                icon={<Volume2 className="w-4 h-4 text-blue-400" />}
-                type="info"
-                value={systemSettings?.whisper_model || "Whisper Medium v3"}
-              />
+                  <SettingsRow
+                    label="Cloudflare R2 Bucket"
+                    icon={<Sliders className="w-4 h-4 text-orange-400" />}
+                    type="info"
+                    value={systemSettings?.r2_bucket || "vidlocal-prod"}
+                  />
 
-              <SettingsRow
-                label="TTS Voice Reader"
-                icon={<Volume2 className="w-4 h-4 text-yellow-400" />}
-                type="info"
-                value={systemSettings?.tts_voice || "vi-VN-D (Male)"}
-              />
+                  <SettingsRow
+                    label="Trạng Thái Cloudflare R2"
+                    icon={<Sliders className="w-4 h-4 text-emerald-400" />}
+                    type="info"
+                    value="Connected"
+                  />
+                </div>
+              </div>
+
+              {/* AI Settings Group */}
+              <div className="space-y-2.5">
+                <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Cấu Hình Trí Tuệ Nhân Tạo</h3>
+                <div className="space-y-2">
+                  <SettingsRow
+                    label="Dịch Thuyết Minh / SEO"
+                    icon={<BookOpen className="w-4 h-4 text-purple-400" />}
+                    type="info"
+                    value={systemSettings?.ai_provider || "Gemini 2.5 Flash"}
+                  />
+
+                  <SettingsRow
+                    label="Whisper Speech-To-Text"
+                    icon={<Volume2 className="w-4 h-4 text-blue-400" />}
+                    type="info"
+                    value={systemSettings?.whisper_model || "Whisper Medium v3"}
+                  />
+
+                  <SettingsRow
+                    label="TTS Voice Reader"
+                    icon={<Volume2 className="w-4 h-4 text-yellow-400" />}
+                    type="info"
+                    value={systemSettings?.tts_voice || "vi-VN-D (Male)"}
+                  />
+                </div>
+              </div>
+
+              {/* Watermark default config group */}
+              <div className="space-y-2.5">
+                <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Thiết Lập Video Thành Phẩm</h3>
+                <div className="space-y-2">
+                  <SettingsRow
+                    label="Vị Trí Watermark Logo"
+                    icon={<Sliders className="w-4 h-4 text-slate-400" />}
+                    type="info"
+                    value="Top-Right"
+                  />
+
+                  <SettingsRow
+                    label="Độ Mờ Watermark Overlay"
+                    icon={<Sliders className="w-4 h-4 text-slate-400" />}
+                    type="info"
+                    value="40% Opacity"
+                  />
+
+                  <SettingsRow
+                    label="Chế Độ Riêng Tư Mặc Định"
+                    icon={<Eye className="w-4 h-4 text-slate-400" />}
+                    type="info"
+                    value="Private"
+                  />
+                </div>
+              </div>
+
+              {/* BotFather Instructions Panel */}
+              <IOSCard className="space-y-2 border-indigo-500/20 bg-indigo-500/[0.02]">
+                <h4 className="text-xs font-bold text-indigo-400 flex items-center gap-1.5 uppercase tracking-wide">
+                  <BookOpen className="w-4 h-4" />
+                  Cách Cấu Hình BotFather Telegram
+                </h4>
+                <div className="text-[10px] text-slate-400 leading-normal space-y-1">
+                  <p>Để admin có thể mở Mini App này trực tiếp từ Bot Telegram, hãy cấu hình theo các bước sau:</p>
+                  <ol className="list-decimal list-inside pl-1 space-y-0.5 font-sans">
+                    <li>Mở chat với <b>@BotFather</b></li>
+                    <li>Gửi lệnh: <code className="text-white bg-white/10 px-1 py-0.5 rounded">/setmenubutton</code></li>
+                    <li>Chọn bot tương ứng của bạn</li>
+                    <li>Nhập URL Mini App: <code className="text-[#06B6D4] font-bold select-all break-all bg-black/40 px-1 py-0.5 rounded">https://ais-dev-ipdqac6gadkqgdlg2fidnh-268830296337.asia-southeast1.run.app</code></li>
+                    <li>Đặt tiều đề nút: <code className="text-white bg-white/10 px-1 py-0.5 rounded">VidLocal Studio</code></li>
+                  </ol>
+                </div>
+              </IOSCard>
             </div>
-          </div>
+          )}
 
-          {/* Watermark default config group */}
-          <div className="space-y-2.5">
-            <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Thiết Lập Video Thành Phẩm</h3>
-            <div className="space-y-2">
-              <SettingsRow
-                label="Vị Trí Watermark Logo"
-                icon={<Sliders className="w-4 h-4 text-slate-400" />}
-                type="info"
-                value="Top-Right"
-              />
-
-              <SettingsRow
-                label="Độ Mờ Watermark Overlay"
-                icon={<Sliders className="w-4 h-4 text-slate-400" />}
-                type="info"
-                value="40% Opacity"
-              />
-
-              <SettingsRow
-                label="Chế Độ Riêng Tư Mặc Định"
-                icon={<Eye className="w-4 h-4 text-slate-400" />}
-                type="info"
-                value="Private"
-              />
+          {settingsSubTab === "bot" && (
+            <div className="space-y-4 animate-fade-in">
+              <BotCenter />
             </div>
-          </div>
+          )}
 
-          {/* BotFather Instructions Panel */}
-          <IOSCard className="space-y-2 border-indigo-500/20 bg-indigo-500/[0.02]">
-            <h4 className="text-xs font-bold text-indigo-400 flex items-center gap-1.5 uppercase tracking-wide">
-              <BookOpen className="w-4 h-4" />
-              Cách Cấu Hình BotFather Telegram
-            </h4>
-            <div className="text-[10px] text-slate-400 leading-normal space-y-1">
-              <p>Để admin có thể mở Mini App này trực tiếp từ Bot Telegram, hãy cấu hình theo các bước sau:</p>
-              <ol className="list-decimal list-inside pl-1 space-y-0.5 font-sans">
-                <li>Mở chat với <b>@BotFather</b></li>
-                <li>Gửi lệnh: <code className="text-white bg-white/10 px-1 py-0.5 rounded">/setmenubutton</code></li>
-                <li>Chọn bot tương ứng của bạn</li>
-                <li>Nhập URL Mini App: <code className="text-[#06B6D4] font-bold select-all break-all bg-black/40 px-1 py-0.5 rounded">https://ais-dev-ipdqac6gadkqgdlg2fidnh-268830296337.asia-southeast1.run.app</code></li>
-                <li>Đặt tiêu đề nút: <code className="text-white bg-white/10 px-1 py-0.5 rounded">VidLocal Studio</code></li>
-              </ol>
+          {settingsSubTab === "queues" && (
+            <div className="space-y-4 animate-fade-in">
+              <QueueMonitor />
             </div>
-          </IOSCard>
+          )}
+
+          {settingsSubTab === "files" && (
+            <div className="space-y-4 animate-fade-in">
+              <FileManager />
+            </div>
+          )}
+
+          {settingsSubTab === "admin" && (
+            <div className="space-y-4 animate-fade-in">
+              <AdminPanel />
+            </div>
+          )}
+
+          {settingsSubTab === "chat" && (
+            <div className="space-y-4 animate-fade-in">
+              <AiChatAssistant />
+            </div>
+          )}
+
+          {settingsSubTab === "logs" && (
+            <div className="space-y-4 animate-fade-in">
+              <div className="flex justify-between items-center px-1">
+                <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Real-time system log stream</h3>
+                <button
+                  onClick={async () => {
+                    const logs = await getSystemLogs().catch(() => []);
+                    setSystemLogs(logs);
+                    setToast({ message: "Đã làm mới nhật ký hệ thống!", type: "success" });
+                  }}
+                  className="text-[10px] text-purple-400 font-bold flex items-center gap-1 active:scale-95 transition-all"
+                >
+                  <RefreshCw className="w-3 h-3 text-purple-400" />
+                  <span>Tải lại logs</span>
+                </button>
+              </div>
+
+              <div className="bg-black/50 border border-white/[0.06] rounded-[24px] p-3.5 font-mono text-[10px] leading-relaxed max-h-96 overflow-y-auto space-y-1.5 text-slate-300">
+                {systemLogs.map((log, idx) => {
+                  let levelColor = "text-blue-400";
+                  if (log.level === "ERROR") levelColor = "text-red-400 font-bold";
+                  else if (log.level === "WARN") levelColor = "text-yellow-500";
+                  else if (log.level === "SUCCESS") levelColor = "text-emerald-400";
+
+                  return (
+                    <div key={idx} className="border-b border-white/[0.02] pb-1 last:border-none last:pb-0">
+                      <span className="text-slate-500">[{log.time}]</span>{" "}
+                      <span className={levelColor}>[{log.level}]</span>{" "}
+                      <span className="text-purple-400 font-bold">[{log.section}]</span>{" "}
+                      <span className="text-slate-200">{log.message}</span>
+                    </div>
+                  );
+                })}
+
+                {systemLogs.length === 0 && (
+                  <p className="text-slate-500 text-center py-8 italic">Chưa có nhật ký ghi nhận.</p>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       )}
 

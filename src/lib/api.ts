@@ -143,6 +143,60 @@ export async function updateSystemSettings(settings: Partial<SystemSettings>): P
   });
 }
 
+// --- New simulated API calls for user specified features ---
+export async function getFiles(): Promise<Record<string, Array<{name: string, size: string, date: string}>>> {
+  return fetchWithTimeout(`${API_BASE}/api/files`);
+}
+
+export async function uploadFile(folder: string, name: string, size: string): Promise<{ success: boolean, files: any }> {
+  return fetchWithTimeout(`${API_BASE}/api/files/upload`, {
+    method: "POST",
+    body: JSON.stringify({ folder, name, size })
+  });
+}
+
+export async function deleteFile(folder: string, name: string): Promise<{ success: boolean, files: any }> {
+  return fetchWithTimeout(`${API_BASE}/api/files/${folder}/${name}`, {
+    method: "DELETE"
+  });
+}
+
+export async function getQueues(): Promise<Record<string, {active: number, queued: number, status: string}>> {
+  return fetchWithTimeout(`${API_BASE}/api/queues`);
+}
+
+export async function triggerQueueAction(queueName: string, action: string): Promise<{ success: boolean, queues: any }> {
+  return fetchWithTimeout(`${API_BASE}/api/queues/${queueName}/${action}`, {
+    method: "POST"
+  });
+}
+
+export async function getBotStatus(): Promise<{ username: string, webhook: string, status: string, polling: string, commands: Array<{command: string, description: string}> }> {
+  return fetchWithTimeout(`${API_BASE}/api/bot-status`);
+}
+
+export async function triggerBotAction(action: string): Promise<{ success: boolean, bot: any }> {
+  return fetchWithTimeout(`${API_BASE}/api/bot-status/action`, {
+    method: "POST",
+    body: JSON.stringify({ action })
+  });
+}
+
+export async function getAiServices(): Promise<{ gemini: { status: string, tokenUsage: number, requestsToday: number }, whisper: { status: string, gpuUsage: number, speed: string }, deeplx: { status: string, requests: number, limit: number } }> {
+  return fetchWithTimeout(`${API_BASE}/api/ai-services`);
+}
+
+export async function getSystemLogs(): Promise<Array<{ time: string, level: string, section: string, message: string }>> {
+  return fetchWithTimeout(`${API_BASE}/api/logs`);
+}
+
+export async function postAiChat(message: string, jobId?: string): Promise<{ response: string }> {
+  return fetchWithTimeout(`${API_BASE}/api/ai-chat`, {
+    method: "POST",
+    body: JSON.stringify({ message, jobId })
+  });
+}
+
 export function subscribeToJobs(onMessage: (jobs: VideoJob[]) => void, onError?: (err: any) => void) {
   const eventSource = new EventSource(`${API_BASE}/api/jobs/stream`);
   eventSource.onmessage = (event) => {

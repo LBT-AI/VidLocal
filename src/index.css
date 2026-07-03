@@ -1,0 +1,48 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Space Grotesk", sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
+  --color-vid-dark: #0B0F19;
+  --color-vid-card: #151D30;
+  --color-vid-purple: #8B5CF6;
+  --color-vid-cyan: #06B6D4;
+}
+
+body {
+  background-color: #090d16;
+  color: #f3f4f6;
+  font-family: var(--font-sans);
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+::-webkit-scrollbar-track {
+  background: #0B0F19;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #1f293d;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #8B5CF6;
+}
+
+/* Slide up animations for sheets */
+.slide-up-enter {
+  transform: translateY(100%);
+}
+.slide-up-enter-active {
+  transform: translateY(0);
+  transition: transform 300ms cubic-bezier(0.16, 1, 0.3, 1);
+}

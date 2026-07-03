@@ -1,20 +1,52 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
+# VidLocal Monorepo
 
-# Run and deploy your AI Studio app
+VidLocal automates video localization: download from Facebook/TikTok → transcribe → translate → TTS → render → upload to YouTube.
 
-This contains everything you need to run your app locally.
+## Structure
 
-View your app in AI Studio: https://ai.studio/apps/4ea495c2-01cb-493c-90fe-24f12b3490de
+```
+├── backend/               # FastAPI + Celery + Telegram bot
+│   ├── app/               # Python application code
+│   ├── alembic/           # Database migrations
+│   └── requirements.txt
+├── apps/
+│   └── telegram-mini/     # Telegram Mini App (Vite + React)
+├── frontend/
+│   └── web-admin/         # Web admin panel (Next.js)
+├── docs/                  # Documentation
+├── docker-compose.yml     # All services
+└── .env.example           # Environment template
+```
 
-## Run Locally
+## Quick Start
 
-**Prerequisites:**  Node.js
+### Backend (Docker)
+```bash
+docker compose up -d
+```
 
+### Telegram Mini App
+```bash
+cd apps/telegram-mini
+npm install
+npm run dev
+```
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+### Web Admin
+```bash
+cd frontend/web-admin
+npm install
+npm run dev
+```
+
+## Services
+
+| Service | Port | Description |
+|---------|------|-------------|
+| API | 8000 | FastAPI backend |
+| Worker | - | Celery async tasks |
+| Bot | - | Telegram bot |
+| Frontend | 3002 | Web admin panel |
+| Mini App | 3000 | Telegram Mini App |
+| PostgreSQL | 5432 | Database |
+| Redis | 6380 | Message broker |

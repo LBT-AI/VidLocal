@@ -1,0 +1,83 @@
+version: "3.8"
+
+services:
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: vidlocal-api
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend/data:/app/data
+      - ./backend/app:/app/app
+    env_file:
+      - .env
+    depends_on:
+      - db
+      - redis
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: vidlocal-worker
+    volumes:
+      - ./backend/data:/app/data
+      - ./backend/app:/app/app
+    env_file:
+      - .env
+    depends_on:
+      - db
+      - redis
+    command: celery -A app.workers.celery_app worker --loglevel=info --concurrency=2
+
+  db:
+    image: postgres:15-alpine
+    container_name: vidlocal-db
+    environment:
+      POSTGRES_USER: vidlocal
+      POSTGRES_PASSWORD: vidlocal123
+      POSTGRES_DB: vidlocal
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    container_name: vidlocal-redis
+    ports:
+      - "6380:6379"
+
+  bot:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: vidlocal-bot
+    volumes:
+      - ./backend/data:/app/data
+      - ./backend/app:/app/app
+    env_file:
+      - .env
+    depends_on:
+      - db
+      - redis
+    command: python -m app.run_bot
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: vidlocal-frontend
+    ports:
+      - "3002:3000"
+    env_file:
+      - .env
+    depends_on:
+      - api
+    command: npm run dev
+
+volumes:
+  postgres_data:

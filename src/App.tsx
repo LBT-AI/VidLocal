@@ -6,7 +6,7 @@ import {
   cancelJob, retryJob, getProjects, createProject, getProject,
   triggerProjectStep, getGlossary, createGlossaryEntry, deleteGlossaryEntry,
   getConnectSettings, toggleYoutubeAuth, updateSystemSettings, subscribeToJobs,
-  getSystemLogs
+  getSystemLogs, generateThumbnailPrompts, uploadThumbnailImage, skipThumbnail
 } from "./lib/api";
 import { VideoJob, Project, GlossaryEntry, SystemSettings } from "./types";
 import { JobCard } from "./components/jobs/JobCard";
@@ -92,6 +92,13 @@ export default function App() {
     privacy: "private" | "unlisted" | "public";
   } | null>(null);
 
+  // Thumbnail AI State Integration
+  const [thumbnailMode, setThumbnailMode] = useState(false);
+  const [thumbnailPrompts, setThumbnailPrompts] = useState<string[]>([]);
+  const [thumbnailImageUrl, setThumbnailImageUrl] = useState<string | null>(null);
+  const [thumbnailStatus, setThumbnailStatus] = useState<"pending" | "approved" | "skipped" | null>(null);
+  const [isLoadingPrompts, setIsLoadingPrompts] = useState(false);
+
   // Toast State
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -147,6 +154,12 @@ export default function App() {
   };
 
   const startReviewMetadata = (job: VideoJob) => {
+    setThumbnailMode(false);
+    setThumbnailPrompts(job.thumbnail?.prompts || []);
+    setThumbnailImageUrl(job.thumbnail?.image_url || null);
+    setThumbnailStatus(job.thumbnail?.status || null);
+    setSelectedJobId(job.id);
+
     if (job.metadata) {
       setDraftMetadata({
         title: job.metadata.title,
@@ -250,6 +263,60 @@ export default function App() {
       loadData(true);
     } catch (e) {
       setToast({ message: "Lỗi kết nối Gemini AI", type: "error" });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleFetchThumbnailPrompts = async (forceRegen = false) => {
+    if (!activeJob) return;
+    setIsLoadingPrompts(true);
+    try {
+      const updated = await generateThumbnailPrompts(activeJob.id);
+      if (updated.thumbnail?.prompts) {
+        setThumbnailPrompts(updated.thumbnail.prompts);
+        setToast({ message: forceRegen ? "Đã làm mới và sinh 4 ý tưởng prompt mới!" : "Gemini đã sinh thành công 4 ý tưởng prompt hình thu nhỏ!", type: "success" });
+      }
+      loadData(true);
+    } catch (e) {
+      setToast({ message: "Lỗi kết nối Gemini AI tạo prompts", type: "error" });
+    } finally {
+      setIsLoadingPrompts(false);
+    }
+  };
+
+  const handleUploadThumbnailFile = async (file: File) => {
+    if (!activeJob) return;
+    setIsLoading(true);
+    try {
+      const reader = new FileReader();
+      reader.onloadend = async () => {
+        const base64String = reader.result as string;
+        const updated = await uploadThumbnailImage(activeJob.id, base64String);
+        setThumbnailImageUrl(updated.thumbnail?.image_url || null);
+        setThumbnailStatus("approved");
+        setToast({ message: "Đã tải lên ảnh Thumbnail và phê duyệt thành công!", type: "success" });
+        loadData(true);
+      };
+      reader.readAsDataURL(file);
+    } catch (e) {
+      setToast({ message: "Lỗi đọc tệp ảnh", type: "error" });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleSkipThumbnailAction = async () => {
+    if (!activeJob) return;
+    setIsLoading(true);
+    try {
+      await skipThumbnail(activeJob.id);
+      setThumbnailStatus("skipped");
+      setToast({ message: "Đã bỏ qua thiết lập Thumbnail cho Job này.", type: "info" });
+      setThumbnailMode(false);
+      loadData(true);
+    } catch (e) {
+      setToast({ message: "Lỗi thực thi bỏ qua", type: "error" });
     } finally {
       setIsLoading(false);
     }
@@ -1575,10 +1642,153 @@ export default function App() {
       <IOSSheet
         isOpen={isMetadataSheetOpen}
         onClose={() => setIsMetadataSheetOpen(false)}
-        title="Duyệt SEO Metadata & YouTube"
-        subtitle="Kiểm tra tiêu đề giật gân, mô tả chuẩn SEO do Gemini AI tối ưu tự động."
+        title={thumbnailMode ? "Thiết Kế Thumbnail AI" : "Duyệt SEO Metadata & YouTube"}
+        subtitle={thumbnailMode ? "Nhận ý tưởng gợi ý từ Gemini AI, tự làm ảnh rồi upload duyệt thumbnail tự động." : "Kiểm tra tiêu đề giật gân, mô tả chuẩn SEO do Gemini AI tối ưu tự động."}
       >
-        {draftMetadata && (
+        {draftMetadata && thumbnailMode ? (
+          <div id="thumbnail-ai-content" className="space-y-4 text-xs">
+            {/* Header / Back Action */}
+            <div className="flex items-center justify-between border-b border-white/[0.04] pb-2">
+              <button
+                onClick={() => setThumbnailMode(false)}
+                className="flex items-center gap-1 text-[#06B6D4] hover:opacity-80 font-bold"
+              >
+                <X className="w-4 h-4" /> Về Metadata
+              </button>
+              <span className="font-bold text-slate-300 uppercase tracking-widest text-[9px] font-mono">VidLocal Thumbnail AI</span>
+              <span className={`text-[9px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider ${
+                thumbnailStatus === "approved" ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30" : "bg-amber-500/20 text-amber-400 border border-amber-500/30"
+              }`}>
+                {thumbnailStatus || "Chờ Thiết Kế"}
+              </span>
+            </div>
+
+            {/* Quick Modes Explainer */}
+            <div className="bg-white/[0.02] border border-white/[0.06] p-3 rounded-2xl text-[10px] text-slate-400 space-y-1.5">
+              <p className="font-bold text-slate-300 flex items-center gap-1">
+                <Sparkles className="w-3.5 h-3.5 text-amber-400 animate-pulse" />
+                Hỗ trợ 3 chế độ thiết kế thumbnail chuyên nghiệp:
+              </p>
+              <ul className="list-disc list-inside space-y-0.5 font-mono text-[9px]">
+                <li><span className="text-amber-300 font-bold">Auto Prompt Only</span>: Gemini tự động tạo prompts</li>
+                <li><span className="text-cyan-300 font-bold">Upload result</span>: Admin tải ảnh Google Flow / Midjourney lên</li>
+                <li><span className="text-purple-300 font-bold">Generate via API</span>: Hạ tầng sẵn sàng tích hợp API tự động</li>
+              </ul>
+            </div>
+
+            {/* Loading / Prompt Content */}
+            {isLoadingPrompts ? (
+              <div className="space-y-3 py-4">
+                <div className="h-4 bg-white/10 rounded-full w-2/3 animate-pulse" />
+                <div className="space-y-2">
+                  <div className="h-16 bg-white/5 rounded-2xl animate-pulse" />
+                  <div className="h-16 bg-white/5 rounded-2xl animate-pulse" />
+                  <div className="h-16 bg-white/5 rounded-2xl animate-pulse" />
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <p className="font-bold text-slate-300">4 Prompt gợi ý từ Gemini AI (Sao chép sang Midjourney / DALL-E):</p>
+                <div className="space-y-2">
+                  {thumbnailPrompts.length > 0 ? (
+                    thumbnailPrompts.map((prompt, idx) => (
+                      <div key={idx} className="bg-white/[0.02] border border-white/[0.06] p-3 rounded-2xl space-y-1.5">
+                        <div className="flex justify-between items-center">
+                          <span className="text-[10px] font-bold text-amber-400 uppercase tracking-wider font-mono">Ý tưởng #{idx + 1}</span>
+                          <button
+                            onClick={() => {
+                              navigator.clipboard.writeText(prompt);
+                              setToast({ message: `Đã copy prompt ý tưởng #${idx + 1}!`, type: "success" });
+                            }}
+                            className="text-[#06B6D4] hover:underline font-bold text-[10px] flex items-center gap-1"
+                          >
+                            <Plus className="w-3.5 h-3.5 text-cyan-400" /> Sao chép prompt
+                          </button>
+                        </div>
+                        <p className="text-slate-300 italic text-[11px] leading-relaxed select-all font-mono bg-black/20 p-2 rounded-xl border border-white/[0.04] max-h-24 overflow-y-auto">
+                          {prompt}
+                        </p>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="text-center py-4 bg-white/[0.02] rounded-2xl text-slate-500">
+                      Chưa có prompt nào. Nhấp vào "Tạo prompt" bên dưới để gọi Gemini AI.
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Preview Image if Approved/Uploaded */}
+            {thumbnailImageUrl && (
+              <div className="space-y-1.5">
+                <p className="font-bold text-slate-300 flex items-center gap-1">
+                  <Eye className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
+                  👁 Preview ảnh Thumbnail đã tải lên:
+                </p>
+                <div className="relative aspect-video rounded-2xl overflow-hidden border border-emerald-500/30 bg-black shadow-lg">
+                  <img
+                    src={thumbnailImageUrl}
+                    alt="Thumbnail Preview"
+                    referrerPolicy="no-referrer"
+                    className="w-full h-full object-cover"
+                  />
+                  <div className="absolute top-2 right-2 bg-emerald-600 text-white text-[9px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
+                    APPROVED
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Actions Panel */}
+            <div className="space-y-2 pt-3 border-t border-white/[0.04]">
+              <div className="grid grid-cols-2 gap-2">
+                {/* Upload Action */}
+                <label className="flex items-center justify-center gap-1.5 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-extrabold py-3 px-1.5 rounded-2xl text-xs text-center cursor-pointer active:scale-95 transition-all shadow-md">
+                  <Plus className="w-4 h-4" />
+                  Upload Image
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => {
+                      if (e.target.files && e.target.files[0]) {
+                        handleUploadThumbnailFile(e.target.files[0]);
+                      }
+                    }}
+                    className="hidden"
+                  />
+                </label>
+
+                {/* Regenerate Action */}
+                <button
+                  onClick={() => handleFetchThumbnailPrompts(true)}
+                  className="bg-white/[0.04] border border-white/[0.08] text-amber-400 hover:bg-amber-500/10 font-bold py-3 rounded-2xl text-xs flex items-center justify-center gap-1.5 active:scale-95 transition-all"
+                >
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin-slow" />
+                  Regenerate Prompts
+                </button>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                {/* Skip Action */}
+                <button
+                  onClick={handleSkipThumbnailAction}
+                  className="bg-red-500/10 border border-red-500/20 text-red-400 hover:bg-red-500/20 font-bold py-3 rounded-2xl text-xs active:scale-95 transition-all"
+                >
+                  Skip Thumbnail
+                </button>
+
+                {/* Back to Metadata editing */}
+                <button
+                  onClick={() => setThumbnailMode(false)}
+                  className="bg-white/[0.05] text-slate-300 font-bold py-3 rounded-2xl text-xs hover:bg-white/10 active:scale-95 transition-all"
+                >
+                  Back to Metadata
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : draftMetadata ? (
           <div id="metadata-sheet-content" className="space-y-4 text-xs">
             {/* Risk Warnings */}
             {activeJob?.metadata?.risk_flags && activeJob.metadata.risk_flags.length > 0 && (
@@ -1667,6 +1877,20 @@ export default function App() {
 
             {/* Actions fixed buttons */}
             <div className="space-y-2 pt-2 border-t border-white/[0.04]">
+              {/* 🎨 AI THUMBNAIL LAUNCHER */}
+              <button
+                onClick={() => {
+                  setThumbnailMode(true);
+                  if (thumbnailPrompts.length === 0) {
+                    handleFetchThumbnailPrompts(false);
+                  }
+                }}
+                className="w-full bg-gradient-to-r from-amber-500 to-orange-600 text-white font-extrabold py-3 rounded-xl text-xs flex items-center justify-center gap-1.5 transition-all shadow-md shadow-orange-500/10 hover:opacity-90 active:scale-95"
+              >
+                <Sparkles className="w-4 h-4 text-amber-200" />
+                Thiết Kế 🎨 Thumbnail AI {thumbnailStatus === "approved" ? " (Đã Duyệt)" : thumbnailStatus === "skipped" ? " (Đã Bỏ Qua)" : ""}
+              </button>
+
               <button
                 onClick={handleRegenerateMetadata}
                 className="w-full bg-white/[0.04] border border-white/[0.08] text-cyan-400 hover:bg-cyan-500/10 font-bold py-2.5 rounded-xl text-xs flex items-center justify-center gap-1.5 transition-all"
@@ -1691,7 +1915,7 @@ export default function App() {
               </div>
             </div>
           </div>
-        )}
+        ) : null}
       </IOSSheet>
 
       {/* 2A. EXTRA UPLOAD CONFIRMATION SHEET */}

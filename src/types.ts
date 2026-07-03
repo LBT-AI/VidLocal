@@ -55,6 +55,11 @@ export interface VideoJob {
     upload_privacy: "private" | "unlisted" | "public";
     enable_dubbing: boolean;
   };
+  thumbnail?: {
+    prompts?: string[];
+    image_url?: string;
+    status?: "pending" | "approved" | "skipped";
+  };
 }
 
 export interface Project {

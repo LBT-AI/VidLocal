@@ -197,6 +197,25 @@ export async function postAiChat(message: string, jobId?: string): Promise<{ res
   });
 }
 
+export async function generateThumbnailPrompts(jobId: string): Promise<VideoJob> {
+  return fetchWithTimeout(`${API_BASE}/api/video-jobs/${jobId}/thumbnail-prompts`, {
+    method: "POST"
+  });
+}
+
+export async function uploadThumbnailImage(jobId: string, image: string): Promise<VideoJob> {
+  return fetchWithTimeout(`${API_BASE}/api/video-jobs/${jobId}/thumbnail-upload`, {
+    method: "POST",
+    body: JSON.stringify({ image })
+  });
+}
+
+export async function skipThumbnail(jobId: string): Promise<VideoJob> {
+  return fetchWithTimeout(`${API_BASE}/api/video-jobs/${jobId}/thumbnail-skip`, {
+    method: "POST"
+  });
+}
+
 export function subscribeToJobs(onMessage: (jobs: VideoJob[]) => void, onError?: (err: any) => void) {
   const eventSource = new EventSource(`${API_BASE}/api/jobs/stream`);
   eventSource.onmessage = (event) => {

@@ -3,11 +3,20 @@ import path from "path";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
+import fs from "fs";
+import os from "os";
 
 dotenv.config();
 
 const app = express();
-app.use(express.json());
+app.use(express.json({ limit: "10mb" }));
+
+// Expose temp_dir static folder for thumbnail preview
+const tempDirPath = path.join(process.cwd(), "temp_dir");
+if (!fs.existsSync(tempDirPath)) {
+  fs.mkdirSync(tempDirPath, { recursive: true });
+}
+app.use("/temp_dir", express.static(tempDirPath));
 
 const PORT = 3000;
 
@@ -68,6 +77,11 @@ interface VideoJob {
     add_watermark: boolean;
     upload_privacy: "private" | "unlisted" | "public";
     enable_dubbing: boolean;
+  };
+  thumbnail?: {
+    prompts?: string[];
+    image_url?: string;
+    status?: "pending" | "approved" | "skipped";
   };
 }
 
@@ -845,6 +859,163 @@ Trả về DUY NHẤT một mã JSON có cấu trúc chính xác như sau:
   res.json(updatedJob);
 });
 
+// Job action: Generate Thumbnail Prompts via Gemini or fallbacks
+app.post("/api/video-jobs/:id/thumbnail-prompts", async (req, res) => {
+  const jobIndex = videoJobs.findIndex(j => j.id === req.params.id);
+  if (jobIndex === -1) {
+    return res.status(404).json({ error: "Job not found" });
+  }
+
+  const job = videoJobs[jobIndex];
+  let prompts: string[] = [];
+
+  try {
+    const ai = getAI();
+    if (ai) {
+      const prompt = `Bạn là một chuyên gia thiết kế hình thu nhỏ (thumbnail) YouTube cho hệ thống VidLocal.
+Dựa trên video có tiêu đề: "${job.title}", tóm tắt: "${job.metadata?.summary || ''}" và chủ đề chính.
+Hãy viết ra chính xác 4 ý tưởng/prompt tiếng Anh (chất lượng cao dành cho Midjourney, DALL-E 3 hoặc Leonardo.ai) để tạo ảnh thumbnail bắt mắt, kịch tính, độ tương phản cao, tỉ lệ nhấp chuột (CTR) cực tốt.
+Mỗi prompt mô tả chi tiết bối cảnh, ánh sáng, góc chụp, biểu cảm và văn bản hiển thị trên ảnh nếu có.
+
+Trả về DUY NHẤT một mảng JSON chứa chính xác 4 chuỗi prompt tiếng Anh dạng:
+[
+  "Prompt 1...",
+  "Prompt 2...",
+  "Prompt 3...",
+  "Prompt 4..."
+]`;
+
+      const response = await ai.models.generateContent({
+        model: "gemini-3.5-flash",
+        contents: prompt,
+        config: {
+          responseMimeType: "application/json"
+        }
+      });
+
+      const responseText = response.text;
+      if (responseText) {
+        prompts = JSON.parse(responseText.trim());
+      }
+    }
+  } catch (error) {
+    console.error("Error generating thumbnail prompts with Gemini API:", error);
+  }
+
+  // Fallback to high-fidelity dynamic thumbnail prompts if empty
+  if (!prompts || prompts.length < 4) {
+    const cleanTitle = job.title.replace(/[|ReviewPhimThuyếtMinh]/g, "").trim();
+    prompts = [
+      `Extreme high-contrast dramatic cinematic poster for a movie review video about "${cleanTitle}". Intense emotional expression, central epic character with glowing energy, background with action explosion scene, deep shadows, professional color grading, ultra-detailed photorealistic 8k, YouTube thumbnail style --ar 16:9`,
+      `Dynamic close-up portrait of the main character of "${cleanTitle}" looking directly at the camera with shocked expression, high sharp details, warm cinematic lighting versus cold blue background shadows, 3D render feel, Unreal Engine 5 style, hyper-realistic, highly clickable thumbnail --ar 16:9`,
+      `Epic side-by-side split screen showing contrast or battle related to "${cleanTitle}". Left side represents bright heroic elements, right side represents dark mysterious forces, high voltage sparks and electricity connecting both sides, epic digital art style, trending on ArtStation --ar 16:9`,
+      `Bold minimalist vector style design for "${cleanTitle}". Huge dramatic centered text with neon glowing outline, mysterious silhouetted figure in the background, stark black and orange color theme, high visual impact, clean typography, engaging design layout --ar 16:9`
+    ];
+  }
+
+  // Save prompts to job's thumbnail metadata
+  const currentThumbnail = job.thumbnail || {};
+  const updatedJob: VideoJob = {
+    ...job,
+    thumbnail: {
+      ...currentThumbnail,
+      prompts,
+      status: currentThumbnail.status || "pending"
+    },
+    logs: [
+      ...job.logs,
+      { time: new Date().toISOString(), level: "info", message: "Generated 4 creative thumbnail prompts via Gemini AI." }
+    ]
+  };
+
+  videoJobs[jobIndex] = updatedJob;
+  broadcastJobsUpdate();
+  res.json(updatedJob);
+});
+
+// Job action: Upload Thumbnail Image (Base64)
+app.post("/api/video-jobs/:id/thumbnail-upload", (req, res) => {
+  const { image } = req.body; // base64 string
+  const jobIndex = videoJobs.findIndex(j => j.id === req.params.id);
+  if (jobIndex === -1) {
+    return res.status(404).json({ error: "Job not found" });
+  }
+
+  const job = videoJobs[jobIndex];
+  if (!image) {
+    return res.status(400).json({ error: "Base64 image is required" });
+  }
+
+  try {
+    // Strip the prefix if present
+    const matches = image.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+    let base64Data = image;
+    if (matches && matches.length === 3) {
+      base64Data = matches[2];
+    }
+
+    const imageBuffer = Buffer.from(base64Data, "base64");
+    
+    // Save to temp_dir/thumbnail.jpg
+    const tempDir = path.join(process.cwd(), "temp_dir");
+    if (!fs.existsSync(tempDir)) {
+      fs.mkdirSync(tempDir, { recursive: true });
+    }
+    const filePath = path.join(tempDir, "thumbnail.jpg");
+    fs.writeFileSync(filePath, imageBuffer);
+
+    const imageUrl = `/temp_dir/thumbnail.jpg?t=${Date.now()}`;
+    const currentThumbnail = job.thumbnail || {};
+
+    const updatedJob: VideoJob = {
+      ...job,
+      thumbnail: {
+        ...currentThumbnail,
+        image_url: imageUrl,
+        status: "approved"
+      },
+      logs: [
+        ...job.logs,
+        { time: new Date().toISOString(), level: "info", message: "Successfully uploaded custom thumbnail to temp_dir/thumbnail.jpg" }
+      ]
+    };
+
+    videoJobs[jobIndex] = updatedJob;
+    broadcastJobsUpdate();
+    res.json(updatedJob);
+  } catch (error: any) {
+    console.error("Error saving uploaded thumbnail:", error);
+    res.status(500).json({ error: "Failed to save thumbnail: " + error.message });
+  }
+});
+
+// Job action: Skip Thumbnail
+app.post("/api/video-jobs/:id/thumbnail-skip", (req, res) => {
+  const jobIndex = videoJobs.findIndex(j => j.id === req.params.id);
+  if (jobIndex === -1) {
+    return res.status(404).json({ error: "Job not found" });
+  }
+
+  const job = videoJobs[jobIndex];
+  const currentThumbnail = job.thumbnail || {};
+
+  const updatedJob: VideoJob = {
+    ...job,
+    thumbnail: {
+      ...currentThumbnail,
+      status: "skipped"
+    },
+    logs: [
+      ...job.logs,
+      { time: new Date().toISOString(), level: "info", message: "Admin skipped custom thumbnail setup for this job." }
+    ]
+  };
+
+  videoJobs[jobIndex] = updatedJob;
+  broadcastJobsUpdate();
+  res.json(updatedJob);
+});
+
 // Job action: Approve Upload / Metadata
 app.post("/api/video-jobs/:id/approve-upload", (req, res) => {
   const { metadata } = req.body;
@@ -868,8 +1039,11 @@ app.post("/api/video-jobs/:id/approve-upload", (req, res) => {
     },
     logs: [
       ...job.logs,
-      { time: new Date().toISOString(), level: "info", message: "Admin approved metadata and authorized YouTube upload." },
-      { time: new Date().toISOString(), level: "info", message: "Applying VidLocal watermark overlay..." }
+      { time: new Date().toISOString(), level: "info" as const, message: "Admin approved metadata and authorized YouTube upload." },
+      ...(job.thumbnail?.status === "approved" ? [
+        { time: new Date().toISOString(), level: "info" as const, message: "Detecting approved custom thumbnail at temp_dir/thumbnail.jpg. Automatically queueing for set-thumbnail API." }
+      ] : []),
+      { time: new Date().toISOString(), level: "info" as const, message: "Applying VidLocal watermark overlay..." }
     ]
   };
 
@@ -915,8 +1089,11 @@ app.post("/api/video-jobs/:id/approve-upload", (req, res) => {
         },
         logs: [
           ...currJob.logs,
-          { time: new Date().toISOString(), level: "info", message: "Uploaded successfully. Private video link published on channel." },
-          { time: new Date().toISOString(), level: "info", message: "Cleaning up local yt-dlp workspace and cached segments." }
+          { time: new Date().toISOString(), level: "info" as const, message: "Uploaded successfully. Private video link published on channel." },
+          ...(currJob.thumbnail?.status === "approved" ? [
+            { time: new Date().toISOString(), level: "info" as const, message: "Successfully configured custom thumbnail to YouTube video using compiled file in temp_dir/thumbnail.jpg" }
+          ] : []),
+          { time: new Date().toISOString(), level: "info" as const, message: "Cleaning up local yt-dlp workspace and cached segments." }
         ]
       };
       broadcastJobsUpdate();

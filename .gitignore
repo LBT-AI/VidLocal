@@ -101,3 +101,5 @@ yarn-error.log*
 apps/telegram-mini/.env
 frontend/web-admin/.env
 backend/.env
+.vercel
+.env*

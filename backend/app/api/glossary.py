@@ -5,7 +5,7 @@ from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.dependencies import get_current_user
+from app.dependencies import get_current_user, get_current_user_optional
 from app.models.character_glossary import CharacterGlossary
 from app.schemas.common import APIResponse
 from pydantic import BaseModel
@@ -44,9 +44,12 @@ class GlossaryEntryOut(BaseModel):
 async def list_glossary(
     project_id: Optional[uuid.UUID] = None,
     db: AsyncSession = Depends(get_db),
-    user_id: str = Depends(get_current_user),
+    user_id: str | None = Depends(get_current_user_optional),
 ):
-    conditions = [or_(CharacterGlossary.user_id == uuid.UUID(user_id), CharacterGlossary.user_id.is_(None))]
+    if not user_id:
+        return APIResponse(data=[])
+    uid = uuid.UUID(user_id)
+    conditions = [or_(CharacterGlossary.user_id == uid, CharacterGlossary.user_id.is_(None))]
     if project_id:
         conditions.append(or_(CharacterGlossary.project_id == project_id, CharacterGlossary.project_id.is_(None)))
     result = await db.execute(
@@ -60,8 +63,10 @@ async def list_glossary(
 async def create_glossary_entry(
     data: GlossaryEntryCreate,
     db: AsyncSession = Depends(get_db),
-    user_id: str = Depends(get_current_user),
+    user_id: str | None = Depends(get_current_user_optional),
 ):
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Authentication required")
     entry = CharacterGlossary(
         project_id=data.project_id,
         user_id=uuid.UUID(user_id),
@@ -83,12 +88,15 @@ async def create_glossary_entry(
 async def delete_glossary_entry(
     entry_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    user_id: str = Depends(get_current_user),
+    user_id: str | None = Depends(get_current_user_optional),
 ):
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    uid = uuid.UUID(user_id)
     result = await db.execute(
         select(CharacterGlossary).where(
             CharacterGlossary.id == entry_id,
-            or_(CharacterGlossary.user_id == uuid.UUID(user_id), CharacterGlossary.user_id.is_(None)),
+            or_(CharacterGlossary.user_id == uid, CharacterGlossary.user_id.is_(None)),
         )
     )
     entry = result.scalar_one_or_none()

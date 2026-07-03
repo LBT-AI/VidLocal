@@ -6,7 +6,7 @@ from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.dependencies import get_current_user
+from app.dependencies import get_current_user, get_current_user_optional
 from app.models.project import Project
 from app.models.subtitle_cue import SubtitleCue
 from app.models.tts_segment import TTSSegment
@@ -24,10 +24,10 @@ router = APIRouter()
 async def create_project(
     data: ProjectCreate,
     db: AsyncSession = Depends(get_db),
-    user_id: str = Depends(get_current_user)
+    user_id: str | None = Depends(get_current_user_optional)
 ):
     project = Project(
-        user_id=uuid.UUID(user_id),
+        user_id=uuid.UUID(user_id) if user_id else uuid.uuid4(),
         title=data.title,
         source_url=data.source_url,
         status="pending"
@@ -41,8 +41,10 @@ async def create_project(
 @router.get("", response_model=APIResponse[List[ProjectListOut]])
 async def list_projects(
     db: AsyncSession = Depends(get_db),
-    user_id: str = Depends(get_current_user)
+    user_id: str | None = Depends(get_current_user_optional)
 ):
+    if not user_id:
+        return APIResponse(data=[])
     result = await db.execute(
         select(Project).where(Project.user_id == uuid.UUID(user_id)).order_by(Project.created_at.desc())
     )
@@ -54,8 +56,10 @@ async def list_projects(
 async def get_project(
     project_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    user_id: str = Depends(get_current_user)
+    user_id: str | None = Depends(get_current_user_optional)
 ):
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Authentication required")
     result = await db.execute(
         select(Project).where(Project.id == project_id, Project.user_id == uuid.UUID(user_id))
     )
@@ -69,8 +73,10 @@ async def get_project(
 async def delete_project(
     project_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    user_id: str = Depends(get_current_user)
+    user_id: str | None = Depends(get_current_user_optional)
 ):
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Authentication required")
     result = await db.execute(
         select(Project).where(Project.id == project_id, Project.user_id == uuid.UUID(user_id))
     )
@@ -89,8 +95,10 @@ async def upload_video(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
-    user_id: str = Depends(get_current_user)
+    user_id: str | None = Depends(get_current_user_optional)
 ):
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Authentication required")
     result = await db.execute(
         select(Project).where(Project.id == project_id, Project.user_id == uuid.UUID(user_id))
     )
@@ -131,8 +139,10 @@ async def import_from_url(
     project_id: uuid.UUID,
     url: str = Form(...),
     db: AsyncSession = Depends(get_db),
-    user_id: str = Depends(get_current_user)
+    user_id: str | None = Depends(get_current_user_optional)
 ):
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Authentication required")
     import yt_dlp
     result = await db.execute(
         select(Project).where(Project.id == project_id, Project.user_id == uuid.UUID(user_id))
@@ -178,8 +188,10 @@ async def import_from_url(
 async def queue_transcribe(
     project_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    user_id: str = Depends(get_current_user)
+    user_id: str | None = Depends(get_current_user_optional)
 ):
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Authentication required")
     result = await db.execute(
         select(Project).where(Project.id == project_id, Project.user_id == uuid.UUID(user_id))
     )

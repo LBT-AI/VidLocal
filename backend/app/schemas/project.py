@@ -25,7 +25,7 @@ class ProjectOut(BaseModel):
     zh_srt_path: Optional[str]
     vi_srt_path: Optional[str]
     final_video_path: Optional[str]
-    metadata_json: Optional[Dict[str, Any]] = Field(alias="metadata")
+    metadata_json: Optional[Dict[str, Any]] = Field(alias="metadata_json")
     created_at: datetime
     updated_at: datetime
 

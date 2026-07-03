@@ -4,7 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.dependencies import get_current_user
+from app.dependencies import get_current_user, get_current_user_optional
 from app.models.platform_connection import PlatformConnection
 from app.schemas.common import APIResponse
 from app.services.youtube_service import youtube_service
@@ -16,7 +16,7 @@ router = APIRouter()
 async def start_oauth(
     platform: str,
     request: Request,
-    user_id: str = Depends(get_current_user)
+    user_id: str | None = Depends(get_current_user_optional)
 ):
     if platform == "youtube":
         url = youtube_service.get_auth_url(state=user_id)
@@ -60,8 +60,10 @@ async def oauth_callback(
 @router.get("")
 async def list_connections(
     db: AsyncSession = Depends(get_db),
-    user_id: str = Depends(get_current_user)
+    user_id: str | None = Depends(get_current_user_optional)
 ):
+    if not user_id:
+        return APIResponse(data=[])
     result = await db.execute(
         select(PlatformConnection).where(PlatformConnection.user_id == uuid.UUID(user_id))
     )
@@ -80,8 +82,10 @@ async def list_connections(
 async def disconnect(
     platform: str,
     db: AsyncSession = Depends(get_db),
-    user_id: str = Depends(get_current_user)
+    user_id: str | None = Depends(get_current_user_optional)
 ):
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Authentication required")
     result = await db.execute(
         select(PlatformConnection).where(
             PlatformConnection.user_id == uuid.UUID(user_id),

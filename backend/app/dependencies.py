@@ -1,11 +1,11 @@
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError, jwt
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.config import settings
 
-security = HTTPBearer()
+security = HTTPBearer(auto_error=False)
 
 
 async def get_current_user(
@@ -24,9 +24,11 @@ async def get_current_user(
 
 
 async def get_current_user_optional(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    credentials: HTTPAuthorizationCredentials | None = Depends(security),
     db: AsyncSession = Depends(get_db)
 ) -> str | None:
+    if credentials is None:
+        return None
     try:
         return await get_current_user(credentials, db)
     except HTTPException:

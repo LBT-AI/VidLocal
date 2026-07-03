@@ -1809,8 +1809,9 @@ class TelegramBotService:
         if isinstance(error, TelegramError):
             logger.warning("Telegram error: %s", error)
 
-    async def _set_menu_commands(self):
-        from telegram import BotCommand
+    async def _set_menu_commands(self, app=None):
+        from telegram import BotCommand, MenuButtonWebApp, WebAppInfo
+        bot = (app or self.application).bot
         try:
             commands = [
                 BotCommand("start", "Khởi động bot"),
@@ -1826,8 +1827,17 @@ class TelegramBotService:
                 BotCommand("tts", "Xem trạng thái TTS"),
                 BotCommand("render", "Xem trạng thái render"),
             ]
-            await self.application.bot.set_my_commands(commands)
+            await bot.set_my_commands(commands)
             logger.info("Bot menu commands set")
+
+            mini_app_url = settings.MINI_APP_URL or "https://telegram-mini-green.vercel.app"
+            await bot.set_chat_menu_button(
+                menu_button=MenuButtonWebApp(
+                    text="VidLocal Studio 🎬",
+                    web_app=WebAppInfo(url=mini_app_url),
+                )
+            )
+            logger.info("Mini App menu button set to %s", mini_app_url)
         except Exception as e:
             logger.warning("Failed to set menu commands: %s", e)
 

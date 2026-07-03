@@ -18,7 +18,7 @@ async def main():
     print("Starting Telegram bot polling...")
     async with app:
         await app.start()
-        await telegram_bot._set_menu_commands()
+        await telegram_bot._set_menu_commands(app)
         print("Bot is running. Press Ctrl+C to stop.")
         await app.updater.start_polling(drop_pending_updates=True)
         try:

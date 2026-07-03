@@ -56,6 +56,8 @@ class Settings(BaseSettings):
     FACEBOOK_APP_ID: str = ""
     FACEBOOK_APP_SECRET: str = ""
 
+    MINI_APP_URL: str = "https://telegram-mini-green.vercel.app"
+
     GLOSSARY_ENABLED: bool = True
     THUMBNAIL_ENABLED: bool = True
     THUMBNAIL_FRAME_INTERVAL: int = 5

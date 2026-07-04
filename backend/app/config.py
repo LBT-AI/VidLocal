@@ -55,6 +55,12 @@ class Settings(BaseSettings):
     TIKTOK_CLIENT_SECRET: str = ""
     FACEBOOK_APP_ID: str = ""
     FACEBOOK_APP_SECRET: str = ""
+    FACEBOOK_COOKIES_FILE: str = "/root/vidlocal/cookies/facebook.txt"
+    BILIBILI_COOKIES_FILE: str = "/app/cookies/bilibili.txt"
+    DOUYIN_COOKIES_FILE: str = ""
+    DOUYIN_PROXY: str = ""
+    DOUYIN_USER_AGENT: str = ""
+    DOWNLOAD_TIMEOUT_SECONDS: int = 900
 
     MINI_APP_URL: str = "https://telegram-mini-green.vercel.app"
 

@@ -11,6 +11,9 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app/ ./app/
+COPY downloaders/ ./downloaders/
+COPY services/ ./services/
+COPY download_engine.py ./download_engine.py
 COPY alembic/ ./alembic/
 
 RUN mkdir -p /app/data/projects

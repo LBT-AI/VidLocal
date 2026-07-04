@@ -14,6 +14,8 @@ celery_app = Celery(
         "app.workers.publish_worker",
         "app.workers.facebook_to_youtube_worker",
         "app.workers.tiktok_to_youtube_worker",
+        "app.workers.bilibili_download_worker",
+        "app.workers.douyin_download_worker",
         "app.workers.cleanup_worker",
     ]
 )

@@ -29,6 +29,10 @@ TIKTOK_URL_PATTERN = re.compile(
     r"https?://(?:www\.|vm\.|m\.)?(?:tiktok\.com)/[\w./\-?&=]+"
 )
 
+DOUYIN_URL_PATTERN = re.compile(
+    r"https?://(?:www\.|v\.)?(?:douyin\.com)/[\w./\-?&=]+"
+)
+
 
 class TelegramBotService:
     def __init__(self):
@@ -59,22 +63,54 @@ class TelegramBotService:
     def _section_divider(self) -> str:
         return "\n" + "─" * 30 + "\n"
 
-    def _format_job_card(self, job) -> str:
-        duration = ""
-        if job.duration_seconds:
-            m, s = divmod(int(job.duration_seconds), 60)
-            h, m = divmod(m, 60)
-            duration = f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{m:02d}:{s:02d}"
-        lines = [
-            f"🎬 <b>Video Processed</b>",
-            f"📹 <b>Name:</b> {self._escape(job.ai_title or 'Untitled')}",
-        ]
-        if duration:
-            lines.append(f"⏱️ <b>Duration:</b> {duration}")
-        if job.ai_category:
-            lines.append(f"🏷️ <b>Category:</b> {self._escape(job.ai_category)}")
-        lines.append(f"📊 <b>Progress:</b> {job.progress}%")
-        return "\n".join(lines)
+    def format_premium_progress(self, job: VideoJob, stage_message: str = "") -> str:
+        template_type = "processing"
+        if job.status == "failed":
+            template_type = "failed"
+        elif job.status == "completed":
+            template_type = "success"
+        elif job.status == "waiting_review":
+            template_type = "waiting_review"
+        elif job.current_step == "upload" and job.status == "running":
+            template_type = "uploading"
+
+        title_short = (job.ai_title or job.source_url.split("/")[-1] or "Untitled")[:40]
+        platform_label = job.source_platform.capitalize() if job.source_platform else "Unknown"
+        job_id_short = str(job.id).split("-")[0]
+        overall_progress = job.progress or 0
+
+        current_step = job.current_step or "download"
+        stage_progress = job.stage_progress or 0
+        
+        steps_str = ["download", "transcribe", "character_extract", "glossary_review", "seo_metadata", "watermark", "upload"]
+        try:
+            step_idx = steps_str.index(current_step)
+        except ValueError:
+            step_idx = 0
+
+        dl = 100 if step_idx > 0 else stage_progress
+        ts = 100 if step_idx > 1 else (stage_progress if step_idx == 1 else 0)
+        tl = 100 if step_idx > 2 else (stage_progress if step_idx == 2 else 0)
+        gl = 100 if job.glossary_status == "approved" else (50 if job.review_state == "waiting_glossary" else 0)
+        seo = 100 if job.metadata_status == "generated" else (stage_progress if step_idx == 4 else 0)
+        th = 100 if job.thumbnail_status in ("approved", "generated", "skipped") else (50 if job.thumbnail_status == "processing" else 0)
+        up = 100 if job.status == "completed" else (stage_progress if step_idx == 6 else 0)
+
+        if template_type == "failed":
+            err = stage_message or job.error_message or "Unknown error"
+            return f"✦ VidLocal Studio\nProcessing failed\n\n{title_short}\n\nStep • {current_step}\nReason • {err}\nJob • #{job_id_short}"
+        
+        elif template_type == "success":
+            return f"✦ VidLocal Studio\nCompleted successfully\n\n{title_short}\n\n{platform_label} → YouTube\nJob • #{job_id_short}\n\n{job.youtube_url or 'N/A'}"
+        
+        elif template_type == "waiting_review":
+            return f"✦ VidLocal Studio\n\n{title_short}\n#{job_id_short}\n\nDownload      100%\nTranscript    100%\nTranslate     100%\nGlossary      {gl}%\nSEO           {seo}%\nThumbnail     {th}%\nUpload        {up}%\n\nWaiting for review: {stage_message}\n\nOverall {overall_progress}%"
+        
+        elif template_type == "uploading":
+            return f"✦ VidLocal Studio\n\n{title_short}\nYouTube • Private\n\nDownload      100%\nTranscript    100%\nTranslate     100%\nGlossary      100%\nSEO           100%\nThumbnail     100%\nUpload        {up}%\n\nUploading to YouTube…\n\nOverall {overall_progress}%"
+        
+        else:
+            return f"𖤐 VidLocal Studio\n\n{title_short}\n{platform_label} • #{job_id_short}\n\nDownload      {dl}%\nTranscript    {ts}%\nTranslate     {tl}%\nGlossary      {gl}%\nSEO           {seo}%\nThumbnail     {th}%\nUpload        {up}%\n\n{stage_message}\n\nOverall {overall_progress}%"
 
     def _status_line(self, label: str, status: str) -> str:
         icons = {
@@ -240,25 +276,9 @@ class TelegramBotService:
         if not job:
             await upd.message.reply_text("❌ Job không tồn tại.")
             return
-        bar = self._progress_bar(job.progress)
-        text = (
-            f"📋 <b>Job Status</b>  ·  <code>{str(job.id)[:8]}</code>"
-            f"{self._section_divider()}"
-            f"📌 <b>Status:</b> {job.status}"
-            f"\n📊 <b>{job.progress}%</b>"
-            f"\n{bar}"
-            f"{self._section_divider()}"
-            f"{self._status_line('Metadata', job.metadata_status or 'pending')}"
-            f"\n{self._status_line('Glossary', job.glossary_status or 'pending')}"
-            f"\n{self._status_line('Thumbnail', job.thumbnail_status or 'pending')}"
-            f"{self._section_divider()}"
-            f"🔗 {self._escape(job.source_url[:80]) if job.source_url else 'N/A'}"
-        )
-        if job.youtube_url:
-            text += f"\n📺 <a href='{job.youtube_url}'>Xem trên YouTube</a>"
-        if job.error_message:
-            text += f"\n❌ {self._escape(job.error_message[:200])}"
-        await upd.message.reply_text(text, parse_mode="HTML", disable_web_page_preview=True)
+
+        formatted_text = self.format_premium_progress(job)
+        await upd.message.reply_text(formatted_text, disable_web_page_preview=True)
 
     async def _handle_message(self, update: object, context: object):
         from telegram import Update
@@ -277,11 +297,12 @@ class TelegramBotService:
 
         is_fb = bool(FACEBOOK_URL_PATTERN.match(text))
         is_tt = bool(TIKTOK_URL_PATTERN.match(text))
+        is_douyin = bool(DOUYIN_URL_PATTERN.match(text))
 
-        if not is_fb and not is_tt:
+        if not is_fb and not is_tt and not is_douyin:
             await upd.message.reply_text(
-                "⚠️ Đây không phải link Facebook hoặc TikTok hợp lệ.\n"
-                "Gửi link video/reel từ Facebook hoặc TikTok.\n"
+                "⚠️ Đây không phải link Facebook, TikTok hoặc Douyin hợp lệ.\n"
+                "Gửi link video/reel từ Facebook, TikTok hoặc Douyin.\n"
                 "Dùng /help để xem hướng dẫn."
             )
             return
@@ -298,7 +319,7 @@ class TelegramBotService:
             job_type = "facebook_to_youtube"
             source_platform = "facebook"
             worker_task = "workers.facebook_to_youtube_worker.process"
-        else:
+        elif is_tt:
             if not tiktok_download_service.validate_url(text):
                 await upd.message.reply_text(
                     "⚠️ Link TikTok không đúng định dạng video.\n"
@@ -310,13 +331,17 @@ class TelegramBotService:
             job_type = "tiktok_to_youtube"
             source_platform = "tiktok"
             worker_task = "workers.tiktok_to_youtube_worker.process"
+        else:
+            job_type = "douyin_download"
+            source_platform = "douyin"
+            worker_task = "workers.douyin_download_worker.process"
 
         msg = await upd.message.reply_text("⏳ Đang tạo job và xử lý...")
         job = VideoJob(
             type=job_type,
             source_url=text,
             source_platform=source_platform,
-            target_platform="youtube",
+            target_platform="local" if source_platform == "douyin" else "youtube",
             status="pending",
             metadata_status="pending",
             admin_chat_id=str(chat_id),
@@ -327,11 +352,11 @@ class TelegramBotService:
             db.add(job)
             await db.commit()
             job_id_str = str(job.id)
+            
+        formatted_text = self.format_premium_progress(job, "Job created, initializing...")
         await msg.edit_text(
-            f"✅ Job đã tạo!\n"
-            f"🆔 Job ID: <code>{job_id_str}</code>\n"
-            f"📥 Đang tải video, trích xuất nội dung...",
-            parse_mode="HTML",
+            formatted_text,
+            parse_mode=None,
         )
         celery_app.send_task(worker_task, args=[job_id_str])
 
@@ -531,7 +556,14 @@ class TelegramBotService:
         parts = data.split("|", 1)
         if len(parts) != 2:
             return
-        action, job_id = parts
+            
+        action, param = parts
+        
+        if action == "projects_page":
+            await self._callback_projects_page(query.message.chat_id, query, int(param))
+            return
+            
+        job_id = param
         chat_id = query.message.chat_id
         try:
             job_uuid = UUID(job_id)
@@ -539,7 +571,92 @@ class TelegramBotService:
             await query.edit_message_text("❌ Job ID không hợp lệ.")
             return
 
-        if action == "main_menu":
+        if action == "view_project":
+            await self._send_project_detail(chat_id, job_uuid, query=query)
+        elif action == "open_glossary":
+            await self._send_glossary_review(job_uuid)
+            try:
+                await query.answer()
+            except:
+                pass
+        elif action == "view_srt":
+            async_session = get_async_session()
+            async with async_session() as db:
+                from sqlalchemy import select
+                result = await db.execute(select(VideoJob).where(VideoJob.id == job_uuid))
+                job = result.scalar_one_or_none()
+                if job and job.transcript_srt_path and os.path.exists(job.transcript_srt_path):
+                    with open(job.transcript_srt_path, "r", encoding="utf-8") as f:
+                        srt_text = f.read()
+                    snippet = srt_text[:1500] + ("\n...(còn tiếp)" if len(srt_text) > 1500 else "")
+                    await query.message.reply_text(f"📝 <b>Bản xem thử phụ đề (SRT):</b>\n\n<code>{self._escape(snippet)}</code>", parse_mode="HTML")
+                else:
+                    await query.message.reply_text("❌ Không tìm thấy file phụ đề.")
+        elif action == "send_srt_file":
+            async_session = get_async_session()
+            async with async_session() as db:
+                from sqlalchemy import select
+                result = await db.execute(select(VideoJob).where(VideoJob.id == job_uuid))
+                job = result.scalar_one_or_none()
+                if job and job.transcript_srt_path and os.path.exists(job.transcript_srt_path):
+                    with open(job.transcript_srt_path, "rb") as doc:
+                        await ctx.bot.send_document(
+                            chat_id=chat_id,
+                            document=doc,
+                            filename="raw.srt",
+                            caption=f"File phụ đề cho Job #{str(job.id)[:8]}"
+                        )
+                else:
+                    await query.message.reply_text("❌ Không tìm thấy file phụ đề.")
+        elif action == "approve_srt":
+            async_session = get_async_session()
+            async with async_session() as db:
+                from sqlalchemy import select
+                result = await db.execute(select(VideoJob).where(VideoJob.id == job_uuid))
+                job = result.scalar_one_or_none()
+                if not job:
+                    await query.edit_message_text("❌ Job không tồn tại.")
+                    return
+                job.transcript_review_status = "approved"
+                job.reviewed_at = datetime.utcnow()
+                await db.commit()
+            await query.edit_message_text("✅ Đã duyệt phụ đề! Tiến trình đang tiếp tục...")
+            from app.workers.celery_app import celery_app
+            celery_app.send_task(
+                f"workers.{job.source_platform}_to_youtube_worker.process_after_srt",
+                args=[str(job_uuid)],
+            )
+        elif action == "retry_srt":
+            async_session = get_async_session()
+            async with async_session() as db:
+                from sqlalchemy import select
+                result = await db.execute(select(VideoJob).where(VideoJob.id == job_uuid))
+                job = result.scalar_one_or_none()
+                if not job:
+                    await query.edit_message_text("❌ Job không tồn tại.")
+                    return
+            await query.edit_message_text("♻️ Đang thử lại riêng bước Speech-to-Text...")
+            from app.workers.celery_app import celery_app
+            celery_app.send_task(
+                f"workers.{job.source_platform}_to_youtube_worker.retry_transcribe",
+                args=[str(job_uuid)],
+            )
+        elif action == "cancel_srt":
+            async_session = get_async_session()
+            async with async_session() as db:
+                from sqlalchemy import select
+                result = await db.execute(select(VideoJob).where(VideoJob.id == job_uuid))
+                job = result.scalar_one_or_none()
+                if not job:
+                    await query.edit_message_text("❌ Job không tồn tại.")
+                    return
+                job.status = "failed"
+                job.error_message = "Hủy bởi người dùng trong lúc duyệt SRT"
+                await db.commit()
+            await query.edit_message_text("❌ Đã hủy Job.")
+        elif action in ("edit_project", "delete_project", "open_tts", "open_render", "open_publish"):
+            await query.answer("🚧 Tính năng đang phát triển!", show_alert=True)
+        elif action == "main_menu":
             await self._send_preview(chat_id, str(job_uuid))
         elif action == "seo_menu":
             async with get_async_session()() as db:
@@ -718,6 +835,55 @@ class TelegramBotService:
             reply_markup = self._build_glossary_keyboard(str(job.id), draft.id, items)
             await self._send_or_edit(chat_id, None, text, reply_markup)
 
+    async def _send_srt_review(self, job_id: UUID):
+        async_session = get_async_session()
+        async with async_session() as db:
+            from sqlalchemy import select
+            result = await db.execute(select(VideoJob).where(VideoJob.id == job_id))
+            job = result.scalar_one_or_none()
+            if not job or not job.admin_chat_id:
+                return
+            chat_id = int(job.admin_chat_id)
+            
+            text = (
+                f"📝 <b>Đã hoàn thành Speech-to-Text</b>\n\n"
+                f"🆔 ID: <code>{job.id}</code>\n"
+                f"🎬 Tiêu đề: <b>{self._escape(job.ai_title or job.source_url.split('/')[-1])}</b>\n"
+                f"🌐 Ngôn ngữ: <code>{job.transcript_language or 'chưa rõ'}</code>\n\n"
+                f"Đã tạo file phụ đề gốc: <code>raw.srt</code>\n"
+                f"Bạn hãy xem trước rồi chọn bước tiếp theo."
+            )
+            
+            from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+            keyboard = [
+                [
+                    InlineKeyboardButton("👁 Xem SRT", callback_data=f"view_srt|{job.id}"),
+                    InlineKeyboardButton("📎 Gửi file SRT", callback_data=f"send_srt_file|{job.id}"),
+                ],
+                [
+                    InlineKeyboardButton("✅ Duyệt đi tiếp", callback_data=f"approve_srt|{job.id}"),
+                    InlineKeyboardButton("♻️ Chạy lại STT", callback_data=f"retry_srt|{job.id}"),
+                ],
+                [
+                    InlineKeyboardButton("❌ Hủy", callback_data=f"cancel_srt|{job.id}")
+                ]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await self._send_or_edit(chat_id, None, text, reply_markup)
+            
+            # Send document
+            if job.transcript_srt_path and os.path.exists(job.transcript_srt_path):
+                try:
+                    with open(job.transcript_srt_path, "rb") as doc:
+                        await self.application.bot.send_document(
+                            chat_id=chat_id,
+                            document=doc,
+                            filename="raw.srt",
+                            caption=f"Phụ đề gốc cho Job #{str(job.id)[:8]}"
+                        )
+                except Exception as e:
+                    logger.warning("Failed to send srt document: %s", e)
+
     def _build_glossary_keyboard(self, job_id: str, draft_id: UUID, items: list = None):
         from telegram import InlineKeyboardButton, InlineKeyboardMarkup
         keyboard = []
@@ -876,6 +1042,11 @@ class TelegramBotService:
                 await query.edit_message_text("❌ Job không tồn tại.")
                 return
             job.glossary_status = "approved"
+            job.status = "running"
+            job.current_step = "seo_metadata"
+            job.review_state = "none"
+            job.stage_progress = 0
+            job.progress = 75
             if draft_id:
                 draft_result = await db.execute(
                     select(CharacterGlossaryDraft).where(CharacterGlossaryDraft.id == draft_id)
@@ -884,10 +1055,11 @@ class TelegramBotService:
                 if draft:
                     draft.status = "approved"
             await db.commit()
+            platform = job.source_platform or "facebook"
         await query.edit_message_text("✅ Đã duyệt glossary! Đang tiếp tục xử lý...")
         from app.workers.celery_app import celery_app
         celery_app.send_task(
-            "workers.facebook_to_youtube_worker.process_after_glossary",
+            f"workers.{platform}_to_youtube_worker.process_after_glossary",
             args=[str(job_uuid)],
         )
 
@@ -901,14 +1073,20 @@ class TelegramBotService:
                 await query.edit_message_text("❌ Job không tồn tại.")
                 return
             job.glossary_status = "skipped"
+            job.status = "running"
+            job.current_step = "seo_metadata"
+            job.review_state = "none"
+            job.stage_progress = 0
+            job.progress = 75
             await db.commit()
+            platform = job.source_platform or "facebook"
         await query.edit_message_text(
             "⏭ Đã bỏ qua glossary. ⚠️ Tên nhân vật có thể không nhất quán khi dịch.\n"
             "Đang tiếp tục xử lý..."
         )
         from app.workers.celery_app import celery_app
         celery_app.send_task(
-            "workers.facebook_to_youtube_worker.process_after_glossary",
+            f"workers.{platform}_to_youtube_worker.process_after_glossary",
             args=[str(job_uuid)],
         )
 
@@ -977,7 +1155,11 @@ class TelegramBotService:
                 await query.edit_message_text("❌ Job không tồn tại.")
                 return
             job.metadata_status = "approved"
-            job.status = "approved"
+            job.status = "running"
+            job.current_step = "watermark"
+            job.review_state = "none"
+            job.stage_progress = 0
+            job.progress = 90
             await db.commit()
             upload_task = (
                 "workers.facebook_to_youtube_worker.upload_approved"
@@ -1606,28 +1788,175 @@ class TelegramBotService:
         await file.download_to_drive(tmp_path)
         await self._handle_thumbnail_upload(chat_id, tmp_path)
 
+    def _status_to_vi(self, status: str) -> str:
+        txt = {
+            "pending": "Chờ xử lý",
+            "running": "Đang chạy",
+            "waiting_review": "Chờ duyệt",
+            "completed": "Hoàn tất",
+            "failed": "Lỗi",
+        }
+        return txt.get(status, "Đang xử lý")
+
+    async def _callback_projects_page(self, chat_id: int, query, page: int):
+        await self._send_projects_page(chat_id, page, query=query)
+
+    async def _send_projects_page(self, chat_id: int, page: int, reply_to_msg=None, query=None):
+        limit = 5
+        offset = (page - 1) * limit
+        async with get_async_session()() as db:
+            from sqlalchemy import select, desc, func
+            total = await db.scalar(select(func.count()).select_from(VideoJob))
+            result = await db.execute(
+                select(VideoJob).order_by(desc(VideoJob.created_at)).offset(offset).limit(limit)
+            )
+            jobs = list(result.scalars().all())
+
+        if not jobs:
+            text = "📭 Không tìm thấy dự án nào."
+            if query:
+                await query.edit_message_text(text)
+            elif reply_to_msg:
+                await reply_to_msg.reply_text(text)
+            return
+
+        lines = [f"📋 <b>Danh sách Tệp</b> (Trang {page})", "━━━━━━━━━━━━━━━━━━"]
+        keyboard = []
+        for j in jobs:
+            title = (j.ai_title or "Untitled")[:30]
+            sid = str(j.id)[:8]
+            status_vi = self._status_to_vi(j.status)
+            if j.status == "running":
+                step_vi = {
+                    "download": "tải video",
+                    "transcribe": "trích phụ đề",
+                    "character_extract": "phân tích nhân vật",
+                    "seo_metadata": "tối ưu SEO",
+                    "watermark": "thêm watermark",
+                    "upload": "upload YouTube",
+                }.get(j.current_step, "xử lý")
+                status_vi = f"Đang {step_vi}"
+            elif j.status == "waiting_review":
+                review_vi = {
+                    "waiting_srt": "phụ đề",
+                    "waiting_glossary": "glossary",
+                    "waiting_upload": "upload",
+                }.get(j.review_state, "")
+                status_vi = f"Chờ duyệt {review_vi}".strip()
+            
+            lines.append(f"🔹 <b>{self._escape(title)}</b> (<code>{sid}</code>)\n   Trạng thái: {status_vi}")
+            
+            keyboard.append([
+                InlineKeyboardButton(f"👁 Xem {sid}", callback_data=f"view_project|{j.id}"),
+                InlineKeyboardButton("✏️ Sửa", callback_data=f"edit_project|{j.id}"),
+                InlineKeyboardButton("🗑 Xóa", callback_data=f"delete_project|{j.id}")
+            ])
+            lines.append("")
+
+        nav_buttons = []
+        if page > 1:
+            nav_buttons.append(InlineKeyboardButton("⬅️ Prev", callback_data=f"projects_page|{page-1}"))
+        if offset + limit < (total or 0):
+            nav_buttons.append(InlineKeyboardButton("➡️ Next", callback_data=f"projects_page|{page+1}"))
+        if nav_buttons:
+            keyboard.append(nav_buttons)
+
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        text = "\n".join(lines)
+        if query:
+            await query.edit_message_text(text, parse_mode="HTML", reply_markup=reply_markup)
+        elif reply_to_msg:
+            await reply_to_msg.reply_text(text, parse_mode="HTML", reply_markup=reply_markup)
+
+    async def _send_project_detail(self, chat_id: int, job_uuid, reply_to_msg=None, query=None):
+        async with get_async_session()() as db:
+            from sqlalchemy import select
+            result = await db.execute(select(VideoJob).where(VideoJob.id == job_uuid))
+            job = result.scalar_one_or_none()
+        
+        if not job:
+            text = "❌ Không tìm thấy dự án này."
+            if query:
+                await query.edit_message_text(text)
+            elif reply_to_msg:
+                await reply_to_msg.reply_text(text)
+            return
+
+        platform = job.source_platform.capitalize() if job.source_platform else "Video"
+        title = (job.ai_title or job.source_url.split("/")[-1] or "Untitled")
+        created = job.created_at.strftime("%Y-%m-%d %H:%M") if job.created_at else "N/A"
+        updated = job.updated_at.strftime("%Y-%m-%d %H:%M") if job.updated_at else "N/A"
+        
+        current_step_raw = job.current_step or "download"
+        steps_str = ["download", "transcribe", "character_extract", "glossary_review", "seo_metadata", "watermark", "upload"]
+        try:
+            step_idx = steps_str.index(current_step_raw)
+        except ValueError:
+            step_idx = 0
+            
+        steps_vi = ["Download", "Transcript", "Nhân vật/Glossary", "Duyệt Glossary", "SEO/Metadata", "Watermark", "Upload"]
+        current_step = steps_vi[step_idx]
+        
+        text = (
+            f"✦ <b>VidLocal Studio | Chi tiết Tệp</b>\n\n"
+            f"🆔 <code>{job.id}</code>\n"
+            f"🎬 <b>{self._escape(title)}</b>\n\n"
+            f"📌 <b>Nền tảng:</b> {platform}\n"
+            f"📌 <b>Trạng thái:</b> {self._status_to_vi(job.status)}\n"
+            f"📌 <b>Tiến trình:</b> {job.progress}%\n"
+            f"📌 <b>Bước hiện tại:</b> {current_step}\n"
+            f"🕒 <b>Tạo lúc:</b> {created}\n"
+            f"🕒 <b>Cập nhật:</b> {updated}\n\n"
+        )
+        if job.youtube_url:
+            text += f"📺 <a href='{job.youtube_url}'>Xem trên YouTube</a>\n"
+        if job.file_path or job.source_file_path:
+            text += f"📁 File nguồn: Đã tải\n"
+            
+        keyboard = [
+            [
+                InlineKeyboardButton("📖 Glossary", callback_data=f"open_glossary|{job.id}"),
+                InlineKeyboardButton("🔊 TTS", callback_data=f"open_tts|{job.id}"),
+            ],
+            [
+                InlineKeyboardButton("🎬 Render", callback_data=f"open_render|{job.id}"),
+                InlineKeyboardButton("📤 Publish", callback_data=f"open_publish|{job.id}"),
+            ],
+            [
+                InlineKeyboardButton("⬅️ Trở lại danh sách", callback_data="projects_page|1")
+            ]
+        ]
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        if query:
+            await query.edit_message_text(text, parse_mode="HTML", reply_markup=reply_markup, disable_web_page_preview=True)
+        elif reply_to_msg:
+            await reply_to_msg.reply_text(text, parse_mode="HTML", reply_markup=reply_markup, disable_web_page_preview=True)
+
     async def _projects(self, update: object, context: object):
         from telegram import Update
         upd: Update = update
         if not self._check_admin(upd.effective_chat.id):
             return
-        async_session = get_async_session()
-        async with async_session() as db:
-            from sqlalchemy import select, desc
-            result = await db.execute(
-                select(VideoJob).order_by(desc(VideoJob.created_at)).limit(10)
-            )
-            jobs = list(result.scalars().all())
-        if not jobs:
-            await upd.message.reply_text("📭 Chưa có project nào.")
+        await self._send_projects_page(upd.effective_chat.id, 1, reply_to_msg=upd.message)
+
+    async def _project(self, update: object, context: object):
+        from telegram import Update
+        upd: Update = update
+        if not self._check_admin(upd.effective_chat.id):
             return
-        lines = ["📋 <b>Recent Projects</b>", "━━━━━━━━━━━━━━━━━━"]
-        for j in jobs:
-            title = (j.ai_title or "Untitled")[:30]
-            sid = str(j.id)[:8]
-            status_icon = "✅" if j.status == "completed" else "🔄" if j.status in ("processing", "pending") else "❌"
-            lines.append(f"{status_icon} <code>{sid}</code> — {self._escape(title)}")
-        await upd.message.reply_text("\n".join(lines), parse_mode="HTML")
+        args = getattr(context, 'args', [])
+        if not args:
+            await upd.message.reply_text("❌ Thiếu project_id. HD: /project <id>")
+            return
+        job_id_str = args[0]
+        try:
+            from uuid import UUID
+            job_uuid = UUID(job_id_str)
+        except ValueError:
+            await upd.message.reply_text("❌ ID không hợp lệ.")
+            return
+        await self._send_project_detail(upd.effective_chat.id, job_uuid, reply_to_msg=upd.message)
 
     async def _subs(self, update: object, context: object):
         from telegram import Update
@@ -1773,6 +2102,7 @@ class TelegramBotService:
         application.add_handler(CommandHandler("delete_glossary", self._delete_glossary))
         application.add_handler(CommandHandler("cancel_edit", self._cancel_edit))
         application.add_handler(CommandHandler("projects", self._projects))
+        application.add_handler(CommandHandler("project", self._project))
         application.add_handler(CommandHandler("subs", self._subs))
         application.add_handler(CommandHandler("tts", self._tts_status))
         application.add_handler(CommandHandler("render", self._render_status))

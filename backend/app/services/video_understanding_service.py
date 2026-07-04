@@ -43,14 +43,29 @@ class VideoUnderstandingService(BaseAIService):
         model = self._get_whisper_model()
         segments, info = model.transcribe(audio_path, word_timestamps=False, vad_filter=True)
         text_parts = []
-        for segment in segments:
+        srt_lines = []
+        
+        def format_timestamp(seconds: float) -> str:
+            hrs = int(seconds // 3600)
+            mins = int((seconds % 3600) // 60)
+            secs = int(seconds % 60)
+            ms = int((seconds - int(seconds)) * 1000)
+            return f"{hrs:02d}:{mins:02d}:{secs:02d},{ms:03d}"
+            
+        for i, segment in enumerate(segments, 1):
             text_parts.append(segment.text.strip())
+            start_str = format_timestamp(segment.start)
+            end_str = format_timestamp(segment.end)
+            srt_lines.append(f"{i}\n{start_str} --> {end_str}\n{segment.text.strip()}\n")
+            
         transcript = " ".join(text_parts)
+        srt_content = "\n".join(srt_lines)
         language = info.language
         log_transcript = transcript[:200].replace("\n", " ") + ("..." if len(transcript) > 200 else "")
         logger.info("Transcript (%s): %s", language, log_transcript)
         return {
             "transcript": transcript,
+            "srt_content": srt_content,
             "language": language,
             "language_probability": info.language_probability,
         }

@@ -35,6 +35,13 @@ class VideoJobOut(BaseModel):
     progress: int
     created_time: str
     youtube_url: Optional[str] = None
+    error_message: Optional[str] = None
+    error_code: Optional[str] = None
+    video_id: Optional[str] = None
+    resolved_url: Optional[str] = None
+    normalized_url: Optional[str] = None
+    file_path: Optional[str] = None
+    updated_at: Optional[str] = None
     current_step: str = "download"
     steps: Optional[dict] = None
     transcript: Optional[str] = None
@@ -44,39 +51,76 @@ class VideoJobOut(BaseModel):
     logs: List[dict] = []
     options: Optional[dict] = None
     thumbnail: Optional[dict] = None
+    transcript_srt_path: Optional[str] = None
+    transcript_text_path: Optional[str] = None
+    transcript_review_status: Optional[str] = None
+    reviewed_at: Optional[str] = None
 
     class Config:
         from_attributes = True
 
 
+class GlossaryItemOut(BaseModel):
+    id: str
+    category: str
+    source_name: str
+    target_name: str
+    pronoun_style: Optional[str] = None
+    family_clan: Optional[str] = None
+    role: Optional[str] = None
+    approved: bool
+
+    class Config:
+        from_attributes = True
+
+
+class GlossaryItemUpsert(BaseModel):
+    id: Optional[str] = None
+    category: str = "character"
+    source_name: str
+    target_name: str
+    pronoun_style: Optional[str] = None
+    family_clan: Optional[str] = None
+    role: Optional[str] = None
+    approved: bool = True
+
+
 def model_to_video_job_out(job: VideoJob) -> VideoJobOut:
     platform = job.source_platform or "facebook"
-    step_map = {
-        "pending": ("download", 0),
-        "downloading": ("download", 15),
-        "downloaded": ("transcribe", 30),
-        "transcribing": ("transcribe", 40),
-        "extracting_characters": ("character_extract", 55),
-        "awaiting_glossary": ("glossary_review", 70),
-        "metadata_generating": ("seo_metadata", 80),
-        "waiting_approval": ("seo_metadata", 85),
-        "processing": ("watermark", 90),
-        "watermarking": ("watermark", 92),
-        "uploading_youtube": ("upload", 95),
-        "completed": ("done", 100),
-        "failed": ("download", job.progress or 50),
-    }
-    current_step, progress = step_map.get(job.status, ("download", 0))
+    current_step = job.current_step or "download"
+    progress = job.progress or 0
 
-    steps = {
-        "download": {"status": "completed" if job.status != "pending" else "pending", "progress": 100 if job.status not in ("pending",) else 0},
-        "transcribe": {"status": "completed" if job.status in ("downloaded", "transcribing", "extracting_characters", "awaiting_glossary", "metadata_generating", "waiting_approval", "processing", "watermarking", "uploading_youtube", "completed") else "pending" if job.status in ("pending", "downloading") else "running", "progress": 100 if job.status in ("downloaded", "transcribing", "extracting_characters", "awaiting_glossary", "metadata_generating", "waiting_approval", "processing", "watermarking", "uploading_youtube", "completed") else 0 if job.status in ("pending", "downloading") else 50},
-        "character_extract": {"status": "completed" if job.status in ("awaiting_glossary", "metadata_generating", "waiting_approval", "processing", "watermarking", "uploading_youtube", "completed") else "running" if job.status == "extracting_characters" else "pending", "progress": 100 if job.status in ("awaiting_glossary", "metadata_generating", "waiting_approval", "processing", "watermarking", "uploading_youtube", "completed") else 0 if job.status in ("pending", "downloading", "downloaded", "transcribing") else 50},
-        "glossary_review": {"status": "completed" if job.glossary_status == "approved" else "running" if job.status == "awaiting_glossary" else "pending" if job.status not in ("awaiting_glossary",) else "running", "progress": 100 if job.glossary_status == "approved" else 0},
-        "seo_metadata": {"status": "completed" if job.status in ("waiting_approval", "processing", "watermarking", "uploading_youtube", "completed") else "running" if job.status == "metadata_generating" else "pending", "progress": 100 if job.status in ("waiting_approval", "processing", "watermarking", "uploading_youtube", "completed") else 0 if job.status not in ("metadata_generating",) else 50},
-        "watermark": {"status": "completed" if job.status in ("uploading_youtube", "completed") else "running" if job.status == "watermarking" else "pending" if job.status not in ("processing", "watermarking", "uploading_youtube", "completed") else "running", "progress": 100 if job.status == "uploading_youtube" or job.status == "completed" else 0 if job.status not in ("processing", "watermarking") else 50},
-        "upload": {"status": "completed" if job.status == "completed" else "running" if job.status == "uploading_youtube" else "pending", "progress": 100 if job.status == "completed" else 0 if job.status not in ("uploading_youtube",) else 50},
-    }
+    all_steps = ["download", "transcribe", "character_extract", "glossary_review", "seo_metadata", "watermark", "upload"]
+    steps = {}
+    try:
+        current_idx = all_steps.index(current_step)
+    except ValueError:
+        current_idx = 0
+
+    for idx, step_name in enumerate(all_steps):
+        if job.status == "failed" and step_name == current_step:
+            step_status = "failed"
+            step_progress = job.stage_progress or 0
+        elif job.status == "completed":
+            step_status = "completed"
+            step_progress = 100
+        elif idx < current_idx:
+            step_status = "completed"
+            step_progress = 100
+        elif idx > current_idx:
+            step_status = "pending"
+            step_progress = 0
+        else: # idx == current_idx
+            if job.status == "waiting_review":
+                step_status = "waiting_review"
+            else:
+                step_status = "running"
+            step_progress = job.stage_progress or 0
+            
+        steps[step_name] = {
+            "status": step_status,
+            "progress": step_progress
+        }
 
     glossary = None
     if job.glossary_status and job.glossary_draft_id:
@@ -113,12 +157,23 @@ def model_to_video_job_out(job: VideoJob) -> VideoJobOut:
         progress=progress,
         created_time=job.created_at.isoformat() if job.created_at else datetime.utcnow().isoformat(),
         youtube_url=job.youtube_url,
+        error_message=job.error_message,
+        error_code=job.error_code,
+        video_id=job.video_id,
+        resolved_url=job.resolved_url,
+        normalized_url=job.normalized_url,
+        file_path=job.file_path or job.source_file_path,
+        updated_at=job.updated_at.isoformat() if job.updated_at else None,
         current_step=current_step,
         steps=steps,
         transcript=job.transcript,
         glossary=glossary,
         metadata=metadata,
         thumbnail=thumbnail,
+        transcript_srt_path=job.transcript_srt_path,
+        transcript_text_path=job.transcript_text_path,
+        transcript_review_status=job.transcript_review_status,
+        reviewed_at=job.reviewed_at.isoformat() if job.reviewed_at else None,
         options={
             "extract_characters": True,
             "generate_seo": True,
@@ -149,22 +204,34 @@ async def create_video_job(
     db: AsyncSession = Depends(get_db),
     user_id: str | None = Depends(get_current_user_optional),
 ):
-    if data.platform == "facebook":
+    from services.download_engine import detect_platform
+
+    try:
+        platform = detect_platform(data.url)
+    except ValueError:
+        platform = data.platform
+
+    task_map = {
+        "facebook": "workers.facebook_to_youtube_worker.process",
+        "tiktok": "workers.tiktok_to_youtube_worker.process",
+        "bilibili": "workers.bilibili_download_worker.process",
+        "douyin": "workers.douyin_download_worker.process",
+    }
+
+    if platform == "facebook":
         from app.services.facebook_download_service import facebook_download_service
         if not facebook_download_service.validate_url(data.url):
             raise HTTPException(status_code=400, detail="Invalid Facebook URL")
-        task_name = "workers.facebook_to_youtube_worker.process"
-    elif data.platform == "tiktok":
-        task_name = "workers.tiktok_to_youtube_worker.process"
-    else:
-        raise HTTPException(status_code=400, detail="Unsupported platform. Use 'facebook' or 'tiktok'")
+    if platform not in task_map:
+        raise HTTPException(status_code=400, detail="Unsupported platform. Use 'facebook', 'tiktok', 'bilibili', or 'douyin'")
+    task_name = task_map[platform]
 
     title = data.title or data.url.split("/")[-1] or "Untitled"
     job = VideoJob(
-        type=f"{data.platform}_to_youtube",
+        type=f"{platform}_download" if platform in ("bilibili", "douyin") else f"{platform}_to_youtube",
         source_url=data.url,
-        source_platform=data.platform,
-        target_platform="youtube",
+        source_platform=platform,
+        target_platform="local" if platform in ("bilibili", "douyin") else "youtube",
         status="pending",
     )
     db.add(job)
@@ -202,6 +269,11 @@ async def approve_glossary(
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     job.glossary_status = "approved"
+    job.status = "running"
+    job.current_step = "seo_metadata"
+    job.review_state = "none"
+    job.stage_progress = 0
+    job.progress = 75
     await db.commit()
 
     task_name = f"workers.{job.source_platform}_to_youtube_worker.process_after_glossary"
@@ -221,9 +293,130 @@ async def skip_glossary(
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     job.glossary_status = "skipped"
+    job.status = "running"
+    job.current_step = "seo_metadata"
+    job.review_state = "none"
+    job.stage_progress = 0
+    job.progress = 75
     await db.commit()
 
     task_name = f"workers.{job.source_platform}_to_youtube_worker.process_after_glossary"
+    celery_app.send_task(task_name, args=[str(job.id)])
+
+    return APIResponse(data=model_to_video_job_out(job))
+
+
+@router.get("/{job_id}/glossary", response_model=List[GlossaryItemOut])
+async def get_glossary(
+    job_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user_id: str | None = Depends(get_current_user_optional),
+):
+    result = await db.execute(select(VideoJob).where(VideoJob.id == job_id))
+    job = result.scalar_one_or_none()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    items_result = await db.execute(
+        select(CharacterGlossaryItem)
+        .where(CharacterGlossaryItem.job_id == job_id)
+        .order_by(CharacterGlossaryItem.category, CharacterGlossaryItem.source_name)
+    )
+    items = items_result.scalars().all()
+    return items
+
+
+@router.post("/{job_id}/glossary/item", response_model=APIResponse)
+async def upsert_glossary_item(
+    job_id: uuid.UUID,
+    item_in: GlossaryItemUpsert,
+    db: AsyncSession = Depends(get_db),
+    user_id: str | None = Depends(get_current_user_optional),
+):
+    result = await db.execute(select(VideoJob).where(VideoJob.id == job_id))
+    job = result.scalar_one_or_none()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    if item_in.id:
+        item_uuid = uuid.UUID(item_in.id)
+        item_result = await db.execute(
+            select(CharacterGlossaryItem).where(CharacterGlossaryItem.id == item_uuid)
+        )
+        item = item_result.scalar_one_or_none()
+        if not item:
+            raise HTTPException(status_code=404, detail="Glossary item not found")
+    else:
+        item = CharacterGlossaryItem(
+            job_id=job.id,
+            draft_id=job.glossary_draft_id,
+        )
+        db.add(item)
+        
+    item.category = item_in.category
+    item.source_name = item_in.source_name
+    item.target_name = item_in.target_name
+    item.pronoun_style = item_in.pronoun_style
+    item.family_clan = item_in.family_clan
+    item.role = item_in.role
+    item.approved = item_in.approved
+    
+    await db.commit()
+    return APIResponse(success=True, message="Glossary item updated successfully")
+
+
+@router.delete("/{job_id}/glossary/item/{item_id}", response_model=APIResponse)
+async def delete_glossary_item(
+    job_id: uuid.UUID,
+    item_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user_id: str | None = Depends(get_current_user_optional),
+):
+    item_result = await db.execute(
+        select(CharacterGlossaryItem).where(CharacterGlossaryItem.id == item_id)
+    )
+    item = item_result.scalar_one_or_none()
+    if not item:
+        raise HTTPException(status_code=404, detail="Glossary item not found")
+        
+    await db.delete(item)
+    await db.commit()
+    return APIResponse(success=True, message="Glossary item deleted successfully")
+
+
+@router.post("/{job_id}/approve-srt", response_model=APIResponse)
+async def approve_srt(
+    job_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user_id: str | None = Depends(get_current_user_optional),
+):
+    result = await db.execute(select(VideoJob).where(VideoJob.id == job_id))
+    job = result.scalar_one_or_none()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    job.transcript_review_status = "approved"
+    job.reviewed_at = datetime.utcnow()
+    await db.commit()
+
+    task_name = f"workers.{job.source_platform}_to_youtube_worker.process_after_srt"
+    celery_app.send_task(task_name, args=[str(job.id)])
+
+    return APIResponse(data=model_to_video_job_out(job))
+
+
+@router.post("/{job_id}/retry-srt", response_model=APIResponse)
+async def retry_srt(
+    job_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user_id: str | None = Depends(get_current_user_optional),
+):
+    result = await db.execute(select(VideoJob).where(VideoJob.id == job_id))
+    job = result.scalar_one_or_none()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    # Run transcribe only Celery task
+    task_name = f"workers.{job.source_platform}_to_youtube_worker.retry_transcribe"
     celery_app.send_task(task_name, args=[str(job.id)])
 
     return APIResponse(data=model_to_video_job_out(job))
@@ -256,9 +449,14 @@ async def approve_upload(
     job = result.scalar_one_or_none()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-    if job.status != "waiting_approval":
-        raise HTTPException(status_code=400, detail=f"Job is in '{job.status}' state, not waiting_approval")
-    job.status = "processing"
+    if job.status != "waiting_review" or job.review_state != "waiting_upload":
+        raise HTTPException(status_code=400, detail="Job is not waiting for upload approval")
+    
+    job.status = "running"
+    job.current_step = "watermark"
+    job.review_state = "none"
+    job.stage_progress = 0
+    job.progress = 90
     await db.commit()
 
     task_name = f"workers.{job.source_platform}_to_youtube_worker.upload_approved"
@@ -293,12 +491,30 @@ async def retry_job(
     job = result.scalar_one_or_none()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+    
     job.status = "pending"
+    job.current_step = "download"
+    job.review_state = "none"
+    job.stage_progress = 0
     job.error_message = None
+    job.error_code = None
+    job.video_id = None
+    job.resolved_url = None
+    job.normalized_url = None
+    job.file_path = None
+    job.source_file_path = None
     job.progress = 0
     await db.commit()
 
-    task_name = f"workers.{job.source_platform}_to_youtube_worker.process"
+    task_map = {
+        "facebook": "workers.facebook_to_youtube_worker.process",
+        "tiktok": "workers.tiktok_to_youtube_worker.process",
+        "bilibili": "workers.bilibili_download_worker.process",
+        "douyin": "workers.douyin_download_worker.process",
+    }
+    task_name = task_map.get(job.source_platform)
+    if not task_name:
+        raise HTTPException(status_code=400, detail=f"Unsupported platform: {job.source_platform}")
     celery_app.send_task(task_name, args=[str(job.id)])
 
     return APIResponse(data=model_to_video_job_out(job))

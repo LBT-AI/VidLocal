@@ -11,6 +11,11 @@ services:
     volumes:
       - ./backend/data:/app/data
       - ./backend/app:/app/app
+      - ./backend/downloaders:/app/downloaders
+      - ./backend/services:/app/services
+      - ./backend/download_engine.py:/app/download_engine.py
+      - ./cookies:/root/vidlocal/cookies:ro
+      - ./cookies:/app/cookies:ro
     env_file:
       - .env
     depends_on:
@@ -26,6 +31,11 @@ services:
     volumes:
       - ./backend/data:/app/data
       - ./backend/app:/app/app
+      - ./backend/downloaders:/app/downloaders
+      - ./backend/services:/app/services
+      - ./backend/download_engine.py:/app/download_engine.py
+      - ./cookies:/root/vidlocal/cookies:ro
+      - ./cookies:/app/cookies:ro
     env_file:
       - .env
     depends_on:

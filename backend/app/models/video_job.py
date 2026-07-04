@@ -11,15 +11,22 @@ class VideoJob(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     type = Column(String(50), nullable=False, default="facebook_to_youtube", index=True)
     source_url = Column(Text, nullable=False)
+    video_id = Column(Text, nullable=True)
+    resolved_url = Column(Text, nullable=True)
+    normalized_url = Column(Text, nullable=True)
     source_platform = Column(String(50), nullable=False, default="facebook")
     target_platform = Column(String(50), nullable=False, default="youtube")
     status = Column(String(50), nullable=False, default="pending", index=True)
     progress = Column(Integer, nullable=False, default=0)
+    current_step = Column(String(50), nullable=True, default="download")
+    review_state = Column(String(50), nullable=False, default="none")
+    stage_progress = Column(Integer, nullable=False, default=0)
     input_file = Column(Text, nullable=True)
     output_file = Column(Text, nullable=True)
     youtube_video_id = Column(Text, nullable=True)
     youtube_url = Column(Text, nullable=True)
     error_message = Column(Text, nullable=True)
+    error_code = Column(String(100), nullable=True)
     admin_chat_id = Column(String(50), nullable=True)
     telegram_message_id = Column(Integer, nullable=True)
 
@@ -37,6 +44,11 @@ class VideoJob(Base):
     glossary_status = Column(String(20), nullable=True, default=None)
     glossary_draft_id = Column(UUID(as_uuid=True), nullable=True)
 
+    transcript_srt_path = Column(Text, nullable=True)
+    transcript_text_path = Column(Text, nullable=True)
+    transcript_review_status = Column(String(20), nullable=True, default=None)  # pending, approved, skipped
+    reviewed_at = Column(DateTime(timezone=True), nullable=True)
+
     thumbnail_prompts = Column(Text, nullable=True)
     thumbnail_path = Column(Text, nullable=True)
     thumbnail_status = Column(String(20), nullable=False, default="pending")
@@ -49,6 +61,7 @@ class VideoJob(Base):
     r2_expires_at = Column(DateTime(timezone=True), nullable=True)
 
     temp_dir = Column(Text, nullable=True)
+    file_path = Column(Text, nullable=True)
     source_file_path = Column(Text, nullable=True)
     watermarked_file_path = Column(Text, nullable=True)
 
